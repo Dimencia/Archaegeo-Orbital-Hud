@@ -2889,29 +2889,37 @@ VERSION_NUMBER = 1.515
                 local rx, ry, scale, xOffset
 
                 local function orbitInfo(type)
-                    local alt, time, speed, line
+                    local alt, time, speed, line, class, textX
                     if type == "Periapsis" then
                         alt = orbit.periapsis.altitude
                         time = orbit.timeToPeriapsis
                         speed = orbit.periapsis.speed
-                        line = 35
+                        class = "txtend"
+                        line = 15
+                        textX = math.min(x,orbitMapX + orbitMapSize - (planet.radius/scale) - pad*2)
                     else
                         alt = orbit.apoapsis.altitude
                         time = orbit.timeToApoapsis
                         speed = orbit.apoapsis.speed
-                        line = -35
+                        line = -15
+                        class = "txtstart"
+                        textX = x
                     end
                     newContent[#newContent + 1] = stringf(
                         [[<line class="pdim op30 linethick" x1="%f" y1="%f" x2="%f" y2="%f"/>]],
-                        x + line, y - 5, orbitMapX + orbitMapSize / 2 - rx + xOffset, y - 5)
-                    newContent[#newContent + 1] = svgText(x, y, type)
+                        textX + line, y - 5, x, y - 5)
+                    newContent[#newContent + 1] = stringf(
+                        [[<line class="pdim linethin" x1="%f" y1="%f" x2="%f" y2="%f"/>]],
+                        textX - line*4, y+2, x, y+2)
+                    newContent[#newContent + 1] = svgText(textX, y, type, class)
+                    x = textX - line*2
                     y = y + orbitInfoYOffset
                     local displayText = getDistanceDisplayString(alt)
-                    newContent[#newContent + 1] = svgText(x, y, displayText)
+                    newContent[#newContent + 1] = svgText(x, y, displayText, class)
                     y = y + orbitInfoYOffset
-                    newContent[#newContent + 1] = svgText(x, y, FormatTimeString(time))
+                    newContent[#newContent + 1] = svgText(x, y, FormatTimeString(time), class)
                     y = y + orbitInfoYOffset
-                    newContent[#newContent + 1] = svgText(x, y, getSpeedDisplayString(speed))
+                    newContent[#newContent + 1] = svgText(x, y, getSpeedDisplayString(speed), class)
                 end
 
                 local targetHeight = orbitMapSize*1.5
@@ -2932,8 +2940,6 @@ VERSION_NUMBER = 1.515
                     -- If orbits are up, let's try drawing a mockup
                     
                     orbitMapY = orbitMapY + pad
-                    x = orbitMapX + orbitMapSize + pad
-                    y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
                     rx = orbitMapSize / 4
                     xOffset = 0
             
@@ -2958,12 +2964,15 @@ VERSION_NUMBER = 1.515
                                                         orbitMapY + orbitMapSize*1.5 / 2 + pad, planet.radius / scale)
                     end
             
+                    x = orbitMapX + orbitMapSize + xOffset + pad*4 + rx -- Aligning left makes us need more padding... for some reason... 
+                    y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
+
                     if orbit.apoapsis ~= nil and orbit.apoapsis.speed < MaxGameVelocity and orbit.apoapsis.speed > 1 then
                         orbitInfo("Apoapsis")
                     end
             
                     y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
-                    x = orbitMapX - orbitMapX + 10 + pad
+                    x = orbitMapX + orbitMapSize + xOffset - pad*2 - rx
             
                     if orbit.periapsis ~= nil and orbit.periapsis.speed < MaxGameVelocity and orbit.periapsis.speed > 1 then
                         orbitInfo("Periapsis")
