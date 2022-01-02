@@ -433,6 +433,12 @@ VERSION_NUMBER = 1.515
     end
     --]]
 
+    local function signedRotationAngle(normal, vecA, vecB)
+        vecA = vecA:project_on_plane(normal)
+        vecB = vecB:project_on_plane(normal)
+        return atan(vecA:cross(vecB):dot(normal), vecA:dot(vecB))
+    end
+
     local function changeSpd(down)
         local mult=1
         if down then mult = -1 end
@@ -1625,7 +1631,8 @@ VERSION_NUMBER = 1.515
                 eccentricAnomaly = EccentricAnomaly,
                 meanAnomaly = MeanAnomaly,
                 timeToPeriapsis = TimeToPeriapsis,
-                timeToApoapsis = TimeToApoapsis
+                timeToApoapsis = TimeToApoapsis,
+                trueAnomaly = trueAnomaly
             }
         end
         local function new(bodyParameters)
@@ -2876,6 +2883,25 @@ VERSION_NUMBER = 1.515
                     newContent[#newContent + 1] = svgText( x, y, help[i], "pdim txttick txtstart")
                 end
             end
+
+            local image_links = {
+                Generic_Moon = "assets.prod.novaquark.com/20368/f410e727-9d4d-4eab-98bf-22994b3fbdcf.png",
+                Sun = "assets.prod.novaquark.com/20368/0936494e-9b3d-4d60-9ea0-d93a3f3e29cd.png",
+                Alioth = "assets.prod.novaquark.com/20368/954f3adb-3369-4ea9-854d-a14606334152.png",
+                Alioth_bis = "assets.prod.novaquark.com/20368/b83225ed-fb96-404c-8c91-86ac15dfbbec.png",
+                Sanctuary = "assets.prod.novaquark.com/20368/1a70dbff-24bc-44cb-905c-6d375d9613b8.png",
+                Feli = "assets.prod.novaquark.com/20368/da91066c-b3fd-41f4-8c01-26131b0a7841.png",
+                Ion = "assets.prod.novaquark.com/20368/91d10712-dc51-4b73-9fc0-6f07d96605a6.png",
+                Madis = "assets.prod.novaquark.com/20368/46d57ef4-40ee-46ca-8cc5-5aee1504bbfe.png",
+                Jago = "assets.prod.novaquark.com/20368/7fca8389-6b70-4198-a9c3-4875d15edb38.png",
+                Lacobus = "assets.prod.novaquark.com/20368/cb67a6a4-933c-4688-a637-898c89eb5b94.png",
+                Sicari = "assets.prod.novaquark.com/20368/f6e2f801-075f-4ccd-ab94-46d060517e8f.png",
+                Sinnen = "assets.prod.novaquark.com/20368/54a99084-7c2b-461b-ab1f-ae4229b3b821.png",
+                Symeon = "assets.prod.novaquark.com/20368/97940324-f194-4e03-808d-d71733ad545a.png",
+                Talemai = "assets.prod.novaquark.com/20368/f68628d9-3245-4d76-968e-ad9c63a19c19.png",
+                Teoma = "assets.prod.novaquark.com/20368/5a01dd8c-3cf8-4151-99a2-83b22f1e7249.png",
+                Thades = "assets.prod.novaquark.com/20368/59f997a2-bcca-45cf-aa35-26e0e41ed5c1.png",
+            }
             
             local function DisplayOrbitScreen(newContent)
                 local orbitMapX = ConvertResolutionX(OrbitMapX)
@@ -2888,25 +2914,28 @@ VERSION_NUMBER = 1.515
                 local y = 0
                 local rx, ry, scale, xOffset
 
+                local tempOrbit
+
                 local function orbitInfo(type)
                     local alt, time, speed, line, class, textX
                     if type == "Periapsis" then
-                        alt = orbit.periapsis.altitude
-                        time = orbit.timeToPeriapsis
-                        speed = orbit.periapsis.speed
+                        alt = tempOrbit.periapsis.altitude
+                        time = tempOrbit.timeToPeriapsis
+                        speed = tempOrbit.periapsis.speed
                         class = "txtend"
-                        line = 15
+                        line = 12
                         textX = math.min(x,orbitMapX + orbitMapSize - (planet.radius/scale) - pad*2)
                     else
-                        alt = orbit.apoapsis.altitude
-                        time = orbit.timeToApoapsis
-                        speed = orbit.apoapsis.speed
-                        line = -15
+                        alt = tempOrbit.apoapsis.altitude
+                        time = tempOrbit.timeToApoapsis
+                        speed = tempOrbit.apoapsis.speed
+                        line = -12
                         class = "txtstart"
                         textX = x
                     end
+                    if velMag < 1 then time = 0 end
                     newContent[#newContent + 1] = stringf(
-                        [[<line class="pdim op30 linethick" x1="%f" y1="%f" x2="%f" y2="%f"/>]],
+                        [[<line class="pdim linethin" style="stroke:white" x1="%f" y1="%f" x2="%f" y2="%f"/>]],
                         textX + line, y - 5, x, y - 5)
                     newContent[#newContent + 1] = stringf(
                         [[<line class="pdim linethin" x1="%f" y1="%f" x2="%f" y2="%f"/>]],
@@ -2933,6 +2962,12 @@ VERSION_NUMBER = 1.515
                 newContent[#newContent + 1] = stringf(
                                                 '<rect width="%f" height="%d" rx="10" ry="10" x="%d" y="%d" class="dimfill brightstroke" style="stroke-width:3;fill-opacity:0.3;" />',
                                                 orbitMapSize*2, targetHeight, orbitMapX, orbitMapY)
+                -- And another inner box for clipping
+                newContent[#newContent + 1] = stringf(
+                                                [[<clippath id="orbitRect">
+                                                <rect width="%f" height="%d" rx="10" ry="10" x="%d" y="%d" class="dimfill brightstroke" style="stroke-width:3;fill-opacity:0.3;" />
+                                                </clippath>]],
+                                                orbitMapSize*2, targetHeight, orbitMapX, orbitMapY)
                 end
 
 
@@ -2940,67 +2975,321 @@ VERSION_NUMBER = 1.515
                     -- If orbits are up, let's try drawing a mockup
                     
                     orbitMapY = orbitMapY + pad
-                    rx = orbitMapSize / 4
+                    rx = orbitMapSize / 2
                     xOffset = 0
             
-                    if orbit.periapsis ~= nil and orbit.apoapsis ~= nil then
-                        scale = (orbit.apoapsis.altitude + orbit.periapsis.altitude + planet.radius * 2) / (rx * 2)
-                        ry = (planet.radius + orbit.periapsis.altitude +
-                                (orbit.apoapsis.altitude - orbit.periapsis.altitude) / 2) / scale *
-                                (1 - orbit.eccentricity)
-                        xOffset = rx - orbit.periapsis.altitude / scale - planet.radius / scale
-            
-                        local ellipseColor = ""
-                        if orbit.periapsis.altitude <= 0 then
-                            ellipseColor = 'redout'
+                    tempOrbit = {}
+                    tempOrbit.periapsis = {}
+                    tempOrbit.apoapsis = {}
+                    if orbit ~= nil then -- Clone it so we don't edit it as we replace extreme values
+                        if orbit.periapsis ~= nil then
+                            tempOrbit.periapsis.altitude = orbit.periapsis.altitude
+                            tempOrbit.periapsis.speed = orbit.periapsis.speed
                         end
-                        newContent[#newContent + 1] = stringf(
-                                                        [[<ellipse class="%s line" cx="%f" cy="%f" rx="%f" ry="%f"/>]],
-                                                        ellipseColor, orbitMapX + orbitMapSize + xOffset + pad,
-                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, rx, ry)
-                        newContent[#newContent + 1] = stringf(
-                                                        '<circle cx="%f" cy="%f" r="%f" stroke="white" stroke-width="3" fill="blue" />',
-                                                        orbitMapX + orbitMapSize + pad,
-                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, planet.radius / scale)
+                        if orbit.apoapsis ~= nil then
+                            tempOrbit.apoapsis.altitude = orbit.apoapsis.altitude
+                            tempOrbit.apoapsis.speed = orbit.apoapsis.speed
+                        end
+                        tempOrbit.period = orbit.period
+                        tempOrbit.eccentricity = orbit.eccentricity
+                        tempOrbit.timeToApoapsis = orbit.timeToApoapsis
+                        tempOrbit.timeToPeriapsis = orbit.timeToPeriapsis
+                        tempOrbit.eccentricAnomaly = orbit.eccentricAnomaly
+                        tempOrbit.trueAnomaly = orbit.trueAnomaly
                     end
-            
-                    x = orbitMapX + orbitMapSize + xOffset + pad*4 + rx -- Aligning left makes us need more padding... for some reason... 
-                    y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
+                    if tempOrbit.periapsis == nil then 
+                        tempOrbit.periapsis = {}
+                        tempOrbit.periapsis.altitude = -planet.radius
+                        tempOrbit.periapsis.speed = MaxGameVelocity -- Don't show it
+                    end
+                    if tempOrbit.eccentricity == nil then
+                        tempOrbit.eccentricity = 1
+                    end
+                    if tempOrbit.apoapsis == nil then
+                        tempOrbit.apoapsis = {}
+                        tempOrbit.apoapsis.altitude = coreAltitude
+                        tempOrbit.apoapsis.speed = 0
+                    end
+                    if velMag < 1 then
+                        tempOrbit.apoapsis.altitude = coreAltitude -- Prevent flicker when stopped
+                        tempOrbit.apoapsis.speed = 0
+                    end
 
-                    if orbit.apoapsis ~= nil and orbit.apoapsis.speed < MaxGameVelocity and orbit.apoapsis.speed > 1 then
-                        orbitInfo("Apoapsis")
-                    end
-            
-                    y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
-                    x = orbitMapX + orbitMapSize + xOffset - pad*2 - rx
-            
-                    if orbit.periapsis ~= nil and orbit.periapsis.speed < MaxGameVelocity and orbit.periapsis.speed > 1 then
-                        orbitInfo("Periapsis")
-                    end
-            
-                    -- Add a label for the planet
-                    newContent[#newContent + 1] = svgText(orbitMapX + orbitMapSize + pad, orbitMapY+20 + pad,planet.name, "txtorbbig")
-            
-                    if orbit.period ~= nil and orbit.periapsis ~= nil and orbit.apoapsis ~= nil and orbit.apoapsis.speed > 1 then
-                        local apsisRatio = (orbit.timeToApoapsis / orbit.period) * 2 * math.pi
+                    
+                    if tempOrbit.apoapsis.altitude then
+                    
+                        scale = (tempOrbit.apoapsis.altitude + tempOrbit.periapsis.altitude + (planet.radius) * 2) / (rx * 2)
+                        ry = ((planet.radius) + tempOrbit.apoapsis.altitude) / scale *(1 - tempOrbit.eccentricity)
+                        -- ry is a straight up distance from center multiplied by scale, then eccentricity
+                        xOffset = rx - tempOrbit.periapsis.altitude / scale - (planet.radius) / scale
+
+                        local apsisRatio = math.pi
+                        if tempOrbit.period ~= nil and tempOrbit.period > 0 and tempOrbit.timeToApoapsis ~= nil then
+                            --apsisRatio = (tempOrbit.timeToApoapsis / tempOrbit.period) * 2 * math.pi
+                            -- So, this is kinda wrong.  Sorta.  It's a ratio representing where we are in the orbit
+                            -- So that 0% and 100% are both at apoapsis, 50% is at periapsis
+                            -- The problem is, when we're 25% through the orbit by time, we do not want to be 25% through the circle
+                            -- Because speeds are slower near apoapsis and we spend more time near there if eccentric
+
+                            -- I'm p sure one of the orbit params is an angle representing where we are on the circle
+                            -- The true anomaly is the angle between the direction of periapsis and the current position
+                            -- eccentricAnomaly already exists and is... the same thing... ?
+                            apsisRatio = tempOrbit.eccentricAnomaly -- But it seems to be based on periapsis?
+                            -- Ahhh weird.  It goes up to pi and back down to negative pi... 
+                            -- Nope, it's 0 to pi... interesting... 
+                            -- So we need to ... conditionally do something depending on which one it's going to
+                            -- If periapsis is next, do 2pi-eccentric
+                            if tempOrbit.timeToPeriapsis < tempOrbit.timeToApoapsis then
+                                apsisRatio = (2*math.pi)-apsisRatio
+                            end
+                            
+                            -- So, this describes a position on a non-eccentric orbit
+                            -- The X value on that outer orbit is correct
+                            -- But the angle itself is not correct for determining that on an ellipse... 
+                        end
+                        -- Handle nans and flickering at low speeds
+                        if velMag < 1 or apsisRatio ~= apsisRatio then apsisRatio = math.pi end
                         -- x = xr * cos(t)
                         -- y = yr * sin(t)
-                        local shipX = rx * math.cos(apsisRatio)
-                        local shipY = ry * math.sin(apsisRatio)
+                        local shipX = -rx * math.cos(apsisRatio) + orbitMapX + orbitMapSize + pad
+                        local shipY = ry * math.sin(apsisRatio) + orbitMapY + orbitMapSize*1.5 / 2 + pad
             
+                        local ellipseColor = ""
+                        --if orbit.periapsis.altitude <= 0 then
+                        --    ellipseColor = 'redout'
+                        --end
+                        newContent[#newContent + 1] = '<g clip-path="url(#orbitRect)">'
                         newContent[#newContent + 1] = stringf(
-                                                        '<circle cx="%f" cy="%f" r="5" stroke="white" stroke-width="3" fill="white" />',
-                                                        orbitMapX + orbitMapSize + shipX + xOffset + pad,
-                                                        orbitMapY + orbitMapSize*1.5 / 2 + shipY + pad)
+                                                        [[<ellipse class="%s line" cx="%f" cy="%f" rx="%f" ry="%f"/>]],
+                                                        ellipseColor, orbitMapX + orbitMapSize + pad,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, rx, ry)
+                        if ry < 1 then
+                            -- Draw a line instead, since the ellipse won't render
+                            newContent[#newContent + 1] = stringf(
+                                                        [[<line x1="%f" y1="%f" x2="%f" y2="%f" stroke="red"/>]],
+                                                        orbitMapX + orbitMapSize + pad - xOffset,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad,
+                                                        shipX, shipY)
+                        end
+                        newContent[#newContent + 1] = stringf(
+                                                        '<circle cx="%f" cy="%f" r="%f" stroke="white" stroke-width="1" fill="rgb(0,150,200)" opacity="0.5" />',
+                                                        orbitMapX + orbitMapSize + pad - xOffset,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, (planet.radius+planet.noAtmosphericDensityAltitude) / scale)
+                        newContent[#newContent + 1] = stringf(
+                                                        '<clipPath id="planetClip"><circle cx="%f" cy="%f" r="%f" /></clipPath>',
+                                                        orbitMapX + orbitMapSize + pad - xOffset,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, (planet.radius+planet.noAtmosphericDensityAltitude) / scale)
+                        newContent[#newContent + 1] = stringf(
+                                                        [[<ellipse class="%s line" cx="%f" cy="%f" rx="%f" ry="%f" clip-path="url(#planetClip)"/>]],
+                                                        "redout", orbitMapX + orbitMapSize + pad,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, rx, ry)
+                        newContent[#newContent + 1] = stringf(
+                                                        '<circle cx="%f" cy="%f" r="%f" stroke="black" stroke-width="1" fill="rgb(0,100,150)" />',
+                                                        orbitMapX + orbitMapSize + pad - xOffset,
+                                                        orbitMapY + orbitMapSize*1.5 / 2 + pad, planet.radius / scale)
+                        newContent[#newContent + 1] = '</g>' -- The rest doesn't really need clipping hopefully
+                        local planetsize = math.floor(planet.radius / scale + 0.5)
+                        local imageLink = image_links.Generic_Moon
+                        if image_links[planet.name] then
+                            imageLink = image_links[planet.name]
+                        end
+                        -- SVG image doesn't seem to work at all...
+                        --newContent[#newContent + 1] = [[<image x="100" y="100" width="200" height="200" href="http://assets.prod.novaquark.com/20368/5a01dd8c-3cf8-4151-99a2-83b22f1e7249.png" />]]
+                        --stringf([[<image x="%d" y="%d" width="%d" height="%d" href="%s" />]],
+                                                        -- This html works but breaks everything... 
+                                                        --'<img style="position:absolute;top:%dpx;left:%dpx;" width="%dpx" height="%dpx" src="%s">',
+                                                        --math.floor((orbitMapX + orbitMapSize + pad) - planetsize/2),
+                                                        --math.floor(orbitMapY + orbitMapSize*1.5 / 2 + pad - planetsize/2), planetsize, planetsize, "https://"..imageLink)
+                        -- Draw it inside the planet red and clipped, if any part of it is inside the planet
+                            
+                        
+                
+                        x = orbitMapX + orbitMapSize + pad*4 + rx -- Aligning left makes us need more padding... for some reason... 
+                        y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
+
+                        if tempOrbit.apoapsis ~= nil and tempOrbit.apoapsis.speed < MaxGameVelocity then
+                            orbitInfo("Apoapsis")
+                        end
+                
+                        y = orbitMapY + orbitMapSize*1.5 / 2 + 5 + pad
+                        x = orbitMapX + orbitMapSize - pad*2 - rx
+                
+                        if tempOrbit.periapsis ~= nil and tempOrbit.periapsis.speed < MaxGameVelocity and tempOrbit.periapsis.altitude > 0 then
+                            orbitInfo("Periapsis")
+                        end
+                
+                        -- Add a label for the planet
+                        newContent[#newContent + 1] = svgText(orbitMapX + orbitMapSize + pad, orbitMapY+20 + pad,planet.name, "txtorbbig")
+                
+                        
+                        newContent[#newContent + 1] = stringf(
+                                                        '<circle cx="%f" cy="%f" r="2" stroke="black" stroke-width="1" fill="white" />',
+                                                        shipX,
+                                                        shipY)
+                        
+                
+                        newContent[#newContent + 1] = [[</g>]]
+                        -- Once we have all that, we should probably rotate the entire thing so that the ship is always at the bottom so you can see AP and PE move?
+                        return newContent
+                    else
+                        newContent[#newContent + 1] = '<g clip-path="url(#orbitRect)">'
+                        -- There is no apoapsis, which means we're escaping (or approaching)
+                        -- The planet should end up on the far left and we show a line indicating how close they will pass/are to the planet
+                        -- Or, render the Galaxymap very small
+                        local GalaxyMapHTML = "" -- No starting SVG tag so we can add it where we want it
+                        -- Figure out our scale here... 
+                        local xRatio = 1.2 * (maxAtlasX - minAtlasX) / (orbitMapSize*2) -- Add 10% for padding
+                        local yRatio = 1.4 * (maxAtlasY - minAtlasY) / (orbitMapSize*1.5) -- Extra so we can get ion back in
+                        for k, v in pairs(atlas[0]) do
+                            if v.center then -- Only planets and stuff
+                                -- Draw a circle at the scaled coordinates
+                                local x = orbitMapX + orbitMapSize + (v.center.x / xRatio)
+                                local y = orbitMapY + orbitMapSize*1.5/2 + (v.center.y / yRatio)
+                                GalaxyMapHTML =
+                                    GalaxyMapHTML .. '<circle cx="' .. x .. '" cy="' .. y .. '" r="' .. (v.radius / xRatio) * 30 ..
+                                        '" stroke="white" stroke-width="1" fill="blue" />'
+                                if not string.match(v.name, "Moon") and not string.match(v.name, "Sanctuary") and not string.match (v.name, "Space") then
+                                    GalaxyMapHTML = GalaxyMapHTML .. "<text x='" .. x .. "' y='" .. y + (v.radius / xRatio) * 30 + 20 ..
+                                                        "' font-size='12' fill=" .. rgb .. " text-anchor='middle' font-family='Montserrat'>" ..
+                                                        v.name .. "</text>"
+                                end
+                            end
+                        end
+                        -- Draw a 'You Are Here' - face edition
+                        local pos = vec3(core.getConstructWorldPos())
+                        local x = orbitMapX + orbitMapSize + pos.x / xRatio
+                        local y = orbitMapY + orbitMapSize*1.5/2 + pos.y / yRatio
+                        GalaxyMapHTML = GalaxyMapHTML .. '<circle cx="' .. x .. '" cy="' .. y ..
+                                            '" r="2" stroke="white" stroke-width="1" fill="red"/>'
+                        GalaxyMapHTML = GalaxyMapHTML .. "<text x='" .. x .. "' y='" .. y - 10 ..
+                                            "' font-size='14' fill='darkred' text-anchor='middle' font-family='Bank' font-weight='bold'>You Are Here</text>"
+                        
+                        MapXRatio = xRatio
+                        MapYRatio = yRatio
+                        -- And, if we can, draw a velocity line
+                        -- We would need to project velocity on the plane of 0,0,1
+                        -- Or the simplest, laziest way.  Project the point they'd be at after a while
+                        local futurePoint = pos + constructVelocity*1000000
+                        local x2 = orbitMapX + orbitMapSize + futurePoint.x / xRatio
+                        local y2 = orbitMapY + orbitMapSize*1.5/2 + futurePoint.y / yRatio
+                        GalaxyMapHTML = GalaxyMapHTML .. '<line x1="' .. x .. '" y1="' .. y ..
+                                            '" x2="' .. x2 .. '" y2="' .. y2 .. '" stroke="purple" stroke-width="1"/>'
+                        newContent[#newContent + 1] = GalaxyMapHTML
+                        newContent[#newContent + 1] = '</g>'
                     end
-            
-                    newContent[#newContent + 1] = [[</g>]]
-                    -- Once we have all that, we should probably rotate the entire thing so that the ship is always at the bottom so you can see AP and PE move?
-                    return newContent
                 elseif SelectedTab == "INFO" then
                     newContent = HUD.DrawOdometer(newContent, totalDistanceTrip, TotalDistanceTravelled, flightTime)
                 elseif SelectedTab == "HELP" then
                     newContent = DisplayHelp(newContent)
+                elseif SelectedTab == "SCOPE" then
+                    -- This might be dumb idk but
+                    -- I want it to show a 'POV' view of the ship's facing, of a galaxy map
+                    -- With a target marker showing where the velocity is
+                    -- Alternatively maybe the POV should be from the velocity vector but let's get this going first
+                    newContent[#newContent + 1] = '<g clip-path="url(#orbitRect)">'
+                    local GalaxyMapHTML = "" -- No starting SVG tag so we can add it where we want it
+                    -- Figure out our scale here... 
+                    local xRatio = (maxAtlasX - minAtlasX) / (orbitMapSize*2) -- Add 10% for padding
+                    local yRatio = (maxAtlasY - minAtlasY) / (orbitMapSize*1.5) -- Extra so we can get ion back in
+                    local fov = 40
+                    -- Sort the atlas by distance
+                    --local sortedAtlas = {}
+                    -- First clone it
+                    --for k,v in pairs(atlas[0]) do
+                    --    if v.center then
+                    --        sortedAtlas[#sortedAtlas + 1] = v
+                    --    end
+                    --end
+                    --table.sort(sortedAtlas, function(a,b) return (a.center-worldPos):len() > (b.center-worldPos):len()  end)
+
+
+
+
+                    -- TODO: Sort this?  But we're hitting overloads
+                    -- Move the calculation to somewhere else that we already iterate
+                    for k, v in pairs(atlas[0]) do
+                        if v.center then -- Only planets and stuff
+                            -- TODO: FOV?
+                            -- But we should be able to just project the points on a plane defined by constructForward
+                            -- X is then projectedPoint:dot(constructRight) and Y is dot(constructUp)
+                            --local projected = v.center:project_on_plane(constructForward)
+
+                            -- Maybe instead.  We project on up and right
+                            -- And x and y are the respective forward dots for the projections
+                            -- Scaled so that around 0.25 = 90 degrees is no longer onscreen
+
+                            local target = v.center-worldPos
+                            -- Find the angle between target and forward on the right plane for Y
+                            local yAngle = signedRotationAngle(constructRight, target, constructForward)*constants.rad2deg
+                            local xAngle = signedRotationAngle(constructUp, target, constructForward)*constants.rad2deg
+                            --if mabs(xAngle) < fov and mabs(yAngle) < fov then 
+                                --p(v.name .. "," .. xAngle .. "," .. yAngle)
+                                local x = orbitMapX + orbitMapSize + (xAngle/fov)*orbitMapSize*2
+                                local y = orbitMapY + orbitMapSize*1.5/2 + (yAngle/fov)*orbitMapSize*1.5
+
+                                --p(x .. ", " .. y)
+                                -- The other consideration here is scale tho.  Which is where FOV comes in... 
+
+                                -- Draw a circle at the scaled coordinates
+                                --local x = orbitMapX + orbitMapSize + (v.center.x / xRatio)
+                                --local y = orbitMapY + orbitMapSize*1.5/2 + (v.center.y / yRatio)
+                                --p(v.name .. "," .. target:len())
+
+                                -- So realistically, the radius should be determined by the angle taken up on screen if we were viewing it right now
+                                -- Which means nearly 0 radii for most.  But basically take a point in the Y direction + radius and - radius, figure out those angles
+                                -- And scale them for the screen
+
+                                -- All this works reasonably well but something's still slippy.  Roll seems to be a problem
+
+                                local topTarget = (v.center+v.radius*target:normalize():cross(constructRight))-worldPos
+                                local topAngle = signedRotationAngle(constructRight, topTarget, target)*constants.rad2deg
+                                --p(v.name .. "," .. topAngle)
+                                local ySize = mabs((topAngle*2)/fov)*orbitMapSize*1.5
+                                local rTarget = (v.center+v.radius*target:normalize():cross(constructUp))-worldPos
+                                local rAngle = signedRotationAngle(constructUp, rTarget, target)*constants.rad2deg
+                                local xSize = mabs((rAngle*2)/fov)*orbitMapSize*2
+
+                                GalaxyMapHTML =
+                                    GalaxyMapHTML .. '<ellipse cx="' .. x .. '" cy="' .. y .. '" rx="' .. xSize .. '" ry="' .. ySize .. 
+                                        '" stroke="white" stroke-width="1" fill="blue" opacity="0.8" />'
+                                GalaxyMapHTML = GalaxyMapHTML .. "<text x='" .. x .. "' y='" .. y ..
+                                        "' font-size='12' fill=" .. rgb .. " text-anchor='middle' font-family='Montserrat'>" ..
+                                        v.name .. "</text>"
+                            --end
+                        end
+                    end
+                    --DrawPrograde(newContent, constructVelocity, velMag, orbitMapX + orbitMapSize, orbitMapY + orbitMapSize*1.5/2)
+                    -- idk why that didn't work
+                    if velMag > 1 then
+                        local yAngle = signedRotationAngle(constructRight, constructVelocity, constructForward)*constants.rad2deg
+                        local xAngle = signedRotationAngle(constructUp, constructVelocity, constructForward)*constants.rad2deg
+                        local x = orbitMapX + orbitMapSize + (xAngle/fov)*orbitMapSize*2
+                        local y = orbitMapY + orbitMapSize*1.5/2 + (yAngle/fov)*orbitMapSize*1.5
+                        local dotSize = 14
+                        local dotRadius = dotSize/2
+                        local progradeDot = [[<circle
+                            cx="]] .. x .. [["
+                            cy="]] .. y .. [["
+                            r="]] .. dotRadius/dotSize .. [["
+                            style="fill:#d7fe00;stroke:none;fill-opacity:1"/>
+                        <circle
+                            cx="]] .. x .. [["
+                            cy="]] .. y .. [["
+                            r="]] .. dotRadius .. [["
+                            style="stroke:#d7fe00;stroke-opacity:1;fill:none" />
+                        <path
+                            d="M ]] .. x-dotSize .. [[,]] .. y .. [[ h ]] .. dotRadius .. [["
+                            style="stroke:#d7fe00;stroke-opacity:1" />
+                        <path
+                            d="M ]] .. x+dotRadius .. [[,]] .. y .. [[ h ]] .. dotRadius .. [["
+                            style="stroke:#d7fe00;stroke-opacity:1" />
+                        <path
+                            d="M ]] .. x .. [[,]] .. y-dotSize .. [[ v ]] .. dotRadius .. [["
+                            style="stroke:#d7fe00;stroke-opacity:1" />]]
+                        GalaxyMapHTML = GalaxyMapHTML .. progradeDot
+                    end
+                    newContent[#newContent + 1] = GalaxyMapHTML
+                    newContent[#newContent + 1] = '</g>'
                 else
                     return newContent
                 end
@@ -3384,7 +3673,7 @@ VERSION_NUMBER = 1.515
             --newContent[#newContent + 1] = svgText(ConvertResolutionX(700), ConvertResolutionY(20), stringf("Trip: %.2f km", totalDistanceTrip), "txtstart") 
             --TODO: newContent[#newContent + 1] = svgText(ConvertResolutionX(700), ConvertResolutionY(30), stringf("Lifetime: %.2f kSU", (TotalDistanceTravelled / 200000)), "txtstart") 
             newContent[#newContent + 1] = svgText(crx(795), labelY1, "BRAKE", "")
-            newContent[#newContent + 1] = stringf([[<path class="linethin dimstroke" d="M %f %f l %f 0"/>]],crx(795),lineY, crx(80))
+            newContent[#newContent + 1] = stringf([[<path class="linethin dimstroke" d="M %f %f l %f 0"/>]],crx(795),lineY, crx(-80))
             newContent[#newContent + 1] = svgText(crx(715), labelY2, stringf("%s", getDistanceDisplayString(brkDist)), "txtstart size20") 
             --newContent[#newContent + 1] = svgText(ConvertResolutionX(830), ConvertResolutionY(10), stringf("BrkDist: %s", getDistanceDisplayString(brkDist)) , "txtstart")
             --newContent[#newContent + 1] = svgText(ConvertResolutionX(830), ConvertResolutionY(20), "Trip Time: "..FormatTimeString(flightTime), "txtstart") 
@@ -3915,11 +4204,7 @@ VERSION_NUMBER = 1.515
 
         -- Local Functions used in apTick
 
-            local function signedRotationAngle(normal, vecA, vecB)
-                vecA = vecA:project_on_plane(normal)
-                vecB = vecB:project_on_plane(normal)
-                return atan(vecA:cross(vecB):dot(normal), vecA:dot(vecB))
-            end
+            
 
             local function AboveGroundLevel()
                 local function hoverDetectGround()
@@ -4171,8 +4456,8 @@ VERSION_NUMBER = 1.515
             if sysIsVwLock() == 0 then
                 if isRemote() == 1 and holdingShift then
                     if not Animating then
-                        simulatedX = simulatedX + deltaX
-                        simulatedY = simulatedY + deltaY
+                        simulatedX = uclamp(simulatedX + deltaX,-resolutionWidth/2,resolutionWidth/2)
+                        simulatedY = uclamp(simulatedY + deltaY,-resolutionHeight/2,resolutionHeight/2)
                     end
                 else
                     simulatedX = 0
@@ -4180,8 +4465,8 @@ VERSION_NUMBER = 1.515
                     -- Except of course autopilot, which is later.
                 end
             else
-                simulatedX = simulatedX + deltaX
-                simulatedY = simulatedY + deltaY
+                simulatedX = uclamp(simulatedX + deltaX,-resolutionWidth/2,resolutionWidth/2)
+                simulatedY = uclamp(simulatedY + deltaY,-resolutionHeight/2,resolutionHeight/2)
                 distance = msqrt(simulatedX * simulatedX + simulatedY * simulatedY)
                 if not holdingShift and isRemote() == 0 then -- Draw deadzone circle if it's navigating
                     if userControlScheme == "virtual joystick" then -- Virtual Joystick
@@ -6278,7 +6563,8 @@ VERSION_NUMBER = 1.515
                 local button = MakeTabButton(0, 0, ConvertResolutionX(70), tabHeight, "INFO")
                 button = MakeTabButton(button.x + button.width,button.y,ConvertResolutionX(80),tabHeight, "ORBIT")
                 button = MakeTabButton(button.x + button.width,button.y,ConvertResolutionX(70),tabHeight,"HELP")
-                MakeTabButton(button.x + button.width,button.y,ConvertResolutionX(70),tabHeight,"HIDE")
+                button = MakeTabButton(button.x + button.width,button.y,ConvertResolutionX(70),tabHeight,"HIDE")
+                button = MakeTabButton(button.x + button.width,button.y,ConvertResolutionX(70),tabHeight,"SCOPE")
             end
 
             local function atlasSetup()
@@ -6335,6 +6621,19 @@ VERSION_NUMBER = 1.515
                         planet.planetarySystemId = galaxyId
                         planet.bodyId = planet.id
                         atlasCopy[galaxyId][planetId] = planet
+
+                        if minAtlasX == nil or planet.center.x < minAtlasX then
+                            minAtlasX = planet.center.x
+                        end
+                        if maxAtlasX == nil or planet.center.x > maxAtlasX then
+                            maxAtlasX = planet.center.x
+                        end
+                        if minAtlasY == nil or planet.center.y < minAtlasY then
+                            minAtlasY = planet.center.y
+                        end
+                        if maxAtlasY == nil or planet.center.y > maxAtlasY then
+                            maxAtlasY = planet.center.y
+                        end
                     end
                 end
                 PlanetaryReference = PlanetRef()
