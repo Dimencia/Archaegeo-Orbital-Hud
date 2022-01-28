@@ -36,12 +36,19 @@ WORK_DIR=${ROOTDIR}/scripts/work
 # Copy files to LuaC src in the appropriate structure
 CLUA_SRC_DIR="${ROOTDIR}/scripts/LuaC/src"
 rm -rf $CLUA_SRC_DIR
-#mkdir -p "${CLUA_SRC_DIR}/autoconf/custom/archhud/custom"
+mkdir -p "${CLUA_SRC_DIR}/autoconf/custom/archhud/custom"
 mkdir -p "${CLUA_SRC_DIR}/Modules"
 cp "${LUA_SRC}" "${CLUA_SRC_DIR}"
 # Copy recursively (-a) require files and the custom folder with it
-#cp -a "${ROOTDIR}/src/requires/." "${CLUA_SRC_DIR}/autoconf/custom/archhud"
-cp -a "${ROOTDIR}/src/requires/." "${CLUA_SRC_DIR}/Modules"
+#cp -a "${ROOTDIR}/src/Modules/." "${CLUA_SRC_DIR}/autoconf/custom/archhud"
+cp -a "${ROOTDIR}/src/Modules/." "${CLUA_SRC_DIR}/Modules"
+cd "${CLUA_SRC_DIR}/Modules"
+for file in *.lua
+do
+echo $file
+  mv $file encoded${file} #Rename files so require differentiates them from the user's
+done 
+mkdir -p "${ROOTDIR}/scripts/LuaC/out/release"
 
 # Run LuaC to merge
 cd "${ROOTDIR}/scripts/LuaC"
@@ -112,6 +119,7 @@ echo "$VERSION_NUMBER" > ${ROOTDIR}/ArchHUD.conf.version
 echo "Compiled v$VERSION_NUMBER at ${CONF_DST}"
 
 rm $WORK_DIR/*
+rm -rf "${ROOTDIR}/scripts/LuaC/out"
 
 # Setup release
 LUA_SRC=${2:-$ROOTDIR/src/ArchHUD.lua} # Point back at our real source and not the merged one
@@ -128,7 +136,7 @@ cp "${LUA_SRC}" "${RELEASEDIR}/archhud"
 # Copy compile.bat in
 cp "${ROOTDIR}/scripts/compile.bat" "${RELEASEDIR}/archhud"
 # Copy recursively (-a) require files and the custom folder with it
-cp -a "${ROOTDIR}/src/requires/." "${RELEASEDIR}/archhud/Modules"
+cp -a "${ROOTDIR}/src/Modules/." "${RELEASEDIR}/archhud/Modules"
 # Rename custom folder so they know what they are, and so when they update, they don't replace their real plugins
 mv "${RELEASEDIR}/archhud/Modules/custom" "${RELEASEDIR}/archhud/Modules/examples"
 # And make a custom one again so they know where to put them (TODO: Rename to 'plugins'? 'ActivePlugins' or 'InstalledPlugins'?)

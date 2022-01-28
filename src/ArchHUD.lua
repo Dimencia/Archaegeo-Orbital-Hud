@@ -1,8 +1,31 @@
 require 'src.slots'
+modular = true
 VERSION_NUMBER = 1.7061
-xpcall(function() require("autoconf/custom/archhud/Modules/globals")  end, function(err) require("Modules/globals")  end)
-xpcall(function() require("autoconf/custom/archhud/Modules/hudclass")  end, function(err) require("Modules/hudclass")  end)
-xpcall(function() require("autoconf/custom/archhud/Modules/apclass")  end, function(err) require("Modules/apclass")  end)
-xpcall(function() require("autoconf/custom/archhud/Modules/radarclass")  end, function(err) require("Modules/radarclass")  end)
-xpcall(function() require("autoconf/custom/archhud/Modules/controlclass")  end, function(err) require("Modules/controlclass")  end)
-xpcall(function() require("autoconf/custom/archhud/Modules/startup")  end, function(err) require("Modules/startup")  end)
+script = {}-- wrappable container for all the code. Different than normal DU Lua in that things are not seperated out.
+
+local modular = pcall(require, "autoconf/custom/archhud/Modules/globals")
+if not modular then system.print("Failed to load modular globals, using .conf") goto encode end
+modular = pcall(require, "autoconf/custom/archhud/Modules/hudclass")
+if not modular then system.print("Failed to load modular hudclass, using .conf") goto encode end
+modular = pcall(require, "autoconf/custom/archhud/Modules/apclass")
+if not modular then system.print("Failed to load modular apclass, using .conf") goto encode end
+modular = pcall(require, "autoconf/custom/archhud/Modules/radarclass")
+if not modular then system.print("Failed to load modular radarclass, using .conf") goto encode end
+modular = pcall(require, "autoconf/custom/archhud/Modules/controlclass")
+if not modular then system.print("Failed to load modular controlclass, using .conf") goto encode end
+success,startup = xpcall(require, function(err) system.print(err) modular = false return false end, "autoconf/custom/archhud/Modules/startup")
+if success then
+    startup(_G)
+end
+if not modular then system.print("Failed to load modular startup, using .conf") goto encode end
+goto start
+
+::encode::
+require("Modules/encodedglobals")
+require("Modules/encodedhudclass")
+require("Modules/encodedapclass")
+require("Modules/encodedradarclass")
+require("Modules/encodedcontrolclass")
+require("Modules/encodedstartup")
+::start::
+script.onStart()

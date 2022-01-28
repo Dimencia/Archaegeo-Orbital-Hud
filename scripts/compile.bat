@@ -111,6 +111,13 @@ REM copy main file to main source directory for LuaC
 copy "%ROOTDIR%%FILENAME%" "%LuaCInputDir%%FILENAME%" 1>NUL 2>NUL
 REM copy files from user-defined Modules folder
 copy "%ROOTDIR%Modules\*.*" "%LuaCInputDir%Modules" 1>NUL 2>NUL
+REM rename all files to encoded* so they aren't part of the same require
+for /f "tokens=*" %%f in ('dir /b ^"%LuaCInputDir%Modules*.jpg^"') do (
+  SET newname=%%f
+  SET newname=!newname:%old%=%new%!
+  move "%%f" "!newname!"
+)
+ren "%LuaCInputDir%Modules\*.lua" "encoded*.lua"
 REM copy files from user custom folder
 copy "%ROOTDIR%Modules\custom\*.*" "%LuaCInputDir%Modules\custom" 1>NUL 2>NUL
 
