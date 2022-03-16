@@ -405,7 +405,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
     end
 
     function ap.checkLOS(vector)
-        local intersectBody, farSide, nearSide = galaxyReference:getPlanetarySystem(0):castIntersections(worldPos, vector,
+        local intersectBody, farSide, nearSide = sys:castIntersections(worldPos, vector,
             function(body) if body.noAtmosphericDensityAltitude > 0 then return (body.radius+body.noAtmosphericDensityAltitude) else return (body.radius+body.surfaceMaxAltitude*1.5) end end)
         local atmoDistance = farSide
         if nearSide ~= nil and farSide ~= nil then
@@ -1101,12 +1101,8 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
         brakeSpeedFactor = math.max(brakeSpeedFactor, 0.01)
         brakeFlatFactor = math.max(brakeFlatFactor, 0.01)
         autoRollFactor = math.max(autoRollFactor, 0.01)
-        -- final inputs
-        local finalPitchInput = uclamp(pitchInput + pitchInput2 + s.getControlDeviceForwardInput(),-1,1)
-        local finalRollInput = uclamp(rollInput + rollInput2 + s.getControlDeviceYawInput(),-1,1)
-        local finalYawInput = uclamp((yawInput + yawInput2) - s.getControlDeviceLeftRightInput(),-1,1)
-        
-        local finalBrakeInput = (BrakeIsOn and 1) or 0
+       
+        -- Final inputs should only be done later, after we set the values we want in them.  It was all a tick late the previous way
 
         -- Axis
         worldVertical = vec3(c.getWorldVertical()) -- along gravity
@@ -1135,32 +1131,9 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
         -- Rotation
         local constructAngularVelocity = vec3(c.getWorldAngularVelocity())
-        local targetAngularVelocity =
-            finalPitchInput * pitchSpeedFactor * constructRight + finalRollInput * rollSpeedFactor * constructForward +
-                finalYawInput * yawSpeedFactor * constructUp
 
-
-        if autoRoll == true and worldVertical:len() > 0.01 then
-            -- autoRoll on AND adjustedRoll is big enough AND player is not rolling
-            local currentRollDelta = mabs(targetRoll-adjustedRoll)
-            if ((( ProgradeIsOn or Reentry or BrakeLanding or spaceLand or AltitudeHold or IntoOrbit) and currentRollDelta > 0) or
-                (inAtmo and currentRollDelta < autoRollRollThreshold and autoRollPreference))  
-                and finalRollInput == 0 and mabs(adjustedPitch) < 85 then
-                local targetRollDeg = targetRoll
-                local rollFactor = autoRollFactor
-                if not inAtmo then
-                    rollFactor = rollFactor/4 -- Better or worse, you think?
-                    targetRoll = 0 -- Always roll to 0 out of atmo
-                    targetRollDeg = 0
-                end
-                if (rollPID == nil) then
-                    rollPID = pid.new(rollFactor * 0.01, 0, rollFactor * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
-                end
-                rollPID:inject(targetRollDeg - adjustedRoll)
-                local autoRollInput = rollPID:get()
-                targetAngularVelocity = targetAngularVelocity + autoRollInput * constructForward
-            end
-        end
+        --Target also should be calculated after we do things
+        -- And autoRoll
 
 
         -- Engine commands
@@ -1308,13 +1281,12 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 if CustomTarget and spaceLand == true then
                     aligned = AlignToWorldVector(CustomTarget.position-worldPos,0.1) 
                 else
-                    aligned = AlignToWorldVector(vec3(constructVelocity),0.01) 
+                    aligned = AlignToWorldVector(vec3(constructVelocity),0.1) 
                 end
                 autoRoll = true
                 if aligned then
-                    cmdC = mfloor(adjustedAtmoSpeedLimit)
-                    if (mabs(adjustedRoll) < 2 or mabs(adjustedPitch) > 85) and velMag >= adjustedAtmoSpeedLimit/3.6-1 then
-                        -- Try to force it to get full speed toward target, so it goes straight to throttle and all is well
+                    --cmdC = mfloor(adjustedAtmoSpeedLimit)
+                    if (mabs(adjustedRoll) < 2 or mabs(adjustedPitch) > 85) then -- and velMag >= adjustedAtmoSpeedLimit/3.6-1
                         BrakeIsOn = false
                         ProgradeIsOn = false
                         if spaceLand ~= 2 then reentryMode = true end
@@ -1787,7 +1759,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 local currentPitch = -math.deg(signedRotationAngle(constructRight, constructForward, constructVelocity:normalize()))
 
                 if (apPitchPID == nil) then
-                    apPitchPID = pid.new(2 * 0.01, 0, 2 * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
+                    apPitchPID = pid.new(2 * 0.01, 0, 2 * 0.01) -- magic number tweaked to have a default factor in the 1-10 range
                 end
                 apPitchPID:inject(targetPitch - currentPitch)
                 local autoPitchInput = uclamp(apPitchPID:get(),-1,1)
@@ -2203,22 +2175,30 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 				-- We also need to know the distance to the atmo along an intersect, not just the vertical distance like we did previously
 				-- Luckily, we have a func for that, which is supposed to only iterate on the 'list' we give it, in this containing only the one planet
                 -- castIntersections(origin, direction, sizeCalculator, bodyIds, collection, sorted)
-				local intersect, near, far = galaxyReference:getPlanetarySystem(0):castIntersections(worldPos, constructVelocity:normalize(), function(body) return (body.radius+body.noAtmosphericDensityAltitude) end, nil, {planet})
-				local atmoDistance = far
-				if near ~= nil and far ~= nil then
-					atmoDistance = math.min(near,far)
-				end
-				if not atmoDistance then -- If we're not on collision with it, use vertical distance
-					atmoDistance = coreAltitude - planet.noAtmosphericDensityAltitude
-				end
+				--local intersect, near, far = galaxyReference:getPlanetarySystem(0):castIntersections(worldPos, constructVelocity:normalize(), function(body) return (body.radius+body.noAtmosphericDensityAltitude) end, nil, {planet})
+				--local atmoDistance = far
+				--if near ~= nil and far ~= nil then
+				--	atmoDistance = math.min(near,far)
+				--end
+				--if not atmoDistance then -- If we're not on collision with it, use vertical distance
+
+                    -- Nah just use vertical distance.  It's safer and less bouncy
+				local atmoDistance = (coreAltitude - planet.noAtmosphericDensityAltitude) - 5000
+                --s.print(coreAltitude .. ", " .. planet.noAtmosphericDensityAltitude .. "," .. atmoDistance)
+
+                -- ... The hell?  This is still giving like -3000 when we enter atmo, instead of -5000
+                -- Entering atmo was being determined wrong in hudclass, should be better now
+
+				--end
 				
-                atmoDistance = atmoDistance - 5000 -- Leave 5km for getting the vector right
+                --atmoDistance = atmoDistance - 5000 -- Leave 5km for getting the vector right
                 -- So when atmoDistance < 0, we're within 5km and should be doing something different
 				
 				-- Smoothly move from -90 to target pitch as we approach to help it be in the right direction from the start
-                targetPitch = -(utils.smoothstep(atmoDistance/30000,0,1)*(90+ReEntryPitch)-ReEntryPitch)
+                --targetPitch = -(utils.smoothstep(atmoDistance/30000,0,1)*(90+ReEntryPitch)-ReEntryPitch)
+                targetPitch = -90 -- Nah, we don't want ReEntryPitch to affect the approach
 				
-				autoRoll = false -- It already rolled when aligning; this keeps it from freaking out if -90 makes it wobble
+				autoRoll = true -- I think our autoroll logic can handle if -90
 
 				-- Actually nah.  Set cruise mode to the orbital speed at atmo height
 				-- An arbitrary limit to keep it from getting crazy fast
@@ -2263,14 +2243,218 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 					end 
 				elseif planet.noAtmosphericDensityAltitude > 0 then--idk why this condition needs to be here?
 					if atmoDistance and atmoDistance < 0 then -- We're within 5km
-						targetPitch = ReEntryPitch/2 -- Helps the vector get to where it needs to be within our 5km window
+						-- Try to make the velocity vector point in the direction we need it
+                        -- That normally would mean setting a pitch of up to 90 and yaw of up to 90, relative from the vel vector
+                        -- How do I do that elsewhere?  
+
+                        --local targetVec = (vec3(targetCoords) - worldPos)
+
+                        -- targetVec should be a vector ReEntryPitch degrees down from right:cross(gravity) (0 pitch forward)
+
+                        targetPitch = nil -- Make our pid later not touch anything I hope
+                        
+                        -- This targetVec can sorta just completely override alt hold in space... it should be much better at it
+                        -- Which would mean it scales to 0 rotation as they approach the target altitude
+                        -- We know how much space is between so we know how much scaling we can do... 
+                        -- That is, noAtmosphericDensityAltitude-targetAltitude is the distance over which we should smoothstep
+                        local stepDistance = planet.noAtmosphericDensityAltitude-HoldAltitude
+                        local shipDistance = coreAltitude-HoldAltitude
+                        -- Let's scale to a nonzero final rotation, so it does actually end at some point
+                        local targetRotation = math.min(utils.smoothstep(shipDistance/stepDistance,0,1)*ReEntryPitch,-5)
+
+
+                        -- Weird.  targetPitch2 seems to always match currentPitch and doesn't change as the velocity vector moves
+                        -- They both just sit in the 20's until we hit atmo
+                        -- Which implies that the angle between our velocity and where we want our velocity is remaining unchanged even when velocity is...?
+                        -- I guess the issue is constructRight; it will always give us basically shipForward?  
+
+                        -- No... so, targetPitch2 is actually the current velocity angle
+                        -- And then we compare that to the desired targetRotation
+
+                        -- Hmm.  It might be reversed? The pitch output, that is.  Cuz it just started doing flips once it needed to adjust.  Trying - in pidget
+
+                        -- Unsure if that's better or worse.  Basically it hits 90 immediately and flips to -90 immediately etc
+
+                        local targetVec = constructRight:cross(worldVertical):rotate(math.rad(targetRotation), constructRight)
+                        --local targetYaw = uclamp(math.deg(signedRotationAngle(constructUp, constructVelocity:normalize(), targetVec:normalize())),-90,90)
+                        local curVelocityAngle = math.deg(signedRotationAngle(constructRight, constructVelocity:normalize(), targetVec:normalize()))
+
+                        --local currentYaw = -math.deg(signedRotationAngle(constructUp, constructForward, constructVelocity:normalize()))
+                        --local currentPitch = -math.deg(signedRotationAngle(constructRight, constructForward, constructVelocity:normalize()))
+        
+
+                        -- We should clamp something so that we don't try to point more than +/-90 off our vector
+                        -- Maybe instead of plugging in the angle difference to the PID, we directly use it; if we're 30 deg off, we point at -30 from current
+                        --local targetPitch2 = uclamp((targetRotation - curVelocityAngle)*3, -90, 90)
+
+                        -- Somthing still seems off with this too tho... with -10 target and current of -30, it was showing a target of like 20
+                        -- I guess that's fair... but maybe x4
+                        -- Bah.  x4 is a bit too much... I always end up doing this and then having to make it explicitly try harder when closer
+                        -- There's gotta be a real answer instead
+
+                        -- This might not be a good way to do it; any ship arbitrarily might need more than double the offset to make it work
+                        -- Really the targetPitch needs its own pid... 
+                        
+
+                        -- Good, now, the PID is just going wild - I guess we're not used to being in flush
+                        -- So scale it down by a factor of 10
+
+                        -- Hmm.  Maybe chained PIDs are bad; they need to really directly influence the controls to work right
+
+                        -- It works reasonably well just targeting the opposite *2, but is definitely arbitrary...
+
+                        -- This reentryPID might actually be the value we're looking for tho... to plug straight into pitchInput
+                        -- The problem is it's not tied to anything; so even if we're 90 up it'll keep wanting to go up
+                        -- Which is what the second pid is for... 
+
+                        -- This isn't good.  One PID needs to have both components, so it doesn't think it needs to increase pitch when it's not even trying it yet
+
+                        -- I guess I could try doing them sorta sequentially... store a targetPitch, and only adjust its pid once we are aimed somehwat at it...
+
+                        -- Alternatively I can just, use the static opposite, with *somethingBig and let the PID handle scaling it down
+
+
+                        --if reentryPID == nil then
+                        --    reentryPID = pid.new(4 * 0.1, 0.001, 2 * 0.01)
+                        --end
+                        --reentryPID:inject(currentPitch+curVelocityAngle)
+                        --local targetPitch2 = uclamp(reentryPID:get(), -90, 90) -- This is a target vs currentPitch, so flat 90's are good
+                        -- Wait... why not against real pitch?  
+                        -- I mean positive and negative real pitch are actually meaningful... 
+
+
+                        -- This is just too fucking annoying to deal with.
+                        -- The fucking problm is that we're fucking on a derivative, like how the fucking solution to orbits was to use vspd and not this dumb shit
+
+                        -- Fine, maybe I'm just overcomplicating things.  Plug curVelocityAngle straight into the input
+
+                        -- Nope.  Even worse, really.  I think doing it as an addon for currentPitch is the same thing but without flipping over
+                        -- 
+
+
+
+
+
+
+                            -- Alright, fucking summary cuz I'm fucking done
+                            -- It fucking works fine enough at just a static, targetPitch = curVelocityAngle*3
+                            -- It's off and never quite converges but it does the job, but I'm sure on some ships it won't
+                            -- I'm sure I need to use the I in PID, but it doesn't make sense on the one pitching us
+                            -- So it makes sense to PID that angle into a targetPitch, except then we've got two things to tune and they're both wonky
+                            -- 
+                            -- So, what could I do instead if I can't figure out the right approach to that?
+                            -- Well, vspd is one; we do it for orbits, after all.  But I think we just... do the same thing (check and verify, too lazy atm)
+                                -- Arbitrarily multiply it by some value and make that a targetPitch... 
+                                -- But basically, if vspd is (ReEntryPitch/90)% of the ReentrySpeed, we are at the correct angle... ? or maybe some sine math for that
+                                -- But I already know and rmmber that yes, the vspd pids are stupid and still don't really make sense.  
+
+
+
+                        -- Goddammit, I think curVelocityAngle is wrong?
+                        -- It was showing an angle of +5 when I was descending... 
+
+                        -- OHHHH it's not curVelocityAngle... that's the curAngleDifference already.  We plug that in directly.  
+                        -- Which means a lot of my old logic can apply... not as a real pitch
+
+                        -- What if I just try to include this in the pid, somehow, anyhow: (targetRotation - curVelocityAngle)
+                        -- Just adding it in there works pretty OK but... then what's the point of even using targetPitch
+                        -- This is basically just another x1 of targetPitch which isn't what I want
+                        -- I kinda want to remove currentPitch... but we do need to ensure it doesn't go more than 90
+                        -- I guess if it moves slow enough, that's not really a concern
+                        -- ... Apparently it still is.  
+
+                        -- Maybe we need the I?  But it wouldn't be here... 
+                        -- Dammit, a PID for the targetPitch is the only thing that makes any sense.  A very slow one.  
+
+
+                        -- GOD fucking Dammit
+                        -- Somehow alt hold is now fucking wrong by fucking 30m or so for no good fucking reason
+                        -- Probably has always fucking been wrong and now we're just displaying more precision so we notice
+
+                        -- Why the fuck is this so fucking hard, I fucking know what we want our fucking velocity to point at
+                        -- So why can't it just fucking do it
+
+
+
+                        -- Alright a PID using the I component is pretty damn good in atmo at converging
+                        -- So we can try it here.  Once more, we need a targetPitch derived from curVelocityAngle such that it's within 90deg of currentVelocity
+
+                        -- But we need it in a way that it keeps increasing...?  Otherwise we'll just be, on target, no integration doing to fix it
+                        
+                        -- I'd love to just plug curVelocityVector straight into a PID.  But the output is then not tied into anything
+                        -- And so may keep pitching up when we're already at 90 deg, for example
+
+                        -- I guess the result of that first PID can be a targetPitch... 
+
+                        if reentryPID == nil then--Trying P 0.01 instead of 0.1, to keep values lower
+                            -- I=0.001 instead of 0.0001 to make it converge better
+                            -- D=1 instead of 10 to make it less bouncy -- Hm, I think this just made it even worse, trying 10 again
+                            reentryPID = pid.new(0.01, 0.001, 10) -- Prev: 4 * 0.1, 0, 2 * 0.01
+                        end
+                        reentryPID:inject(curVelocityAngle) -- Removing *90 to see if I can slow it down
+                        -- Without the *90 it's like 6ish, so *90 is overkill anyway
+                        -- Though I might still consider making it more of, currentPitch+pidGet, let's try with more like *15
+
+                        -- At *15, it's pretty decent and moves slowly, but doesn't converge quick enough
+                        -- Increasing I from 0.001 to 0.01
+                        -- Makes it too fast again, oscillates -90 to 90, going back to 0.001 for now
+                        -- Increasing the multiplier from *15 to *30 to see if that helps it converge
+
+                        -- Okay that's quite good: 0.01, 0.001, 10 : *15
+                        -- But it does still overshoot a lot, i.e. makes us dive hard at the beginning.  Maybe we just, clamp the bottom much lower than -90, ez
+
+                        local targetPitch2 = uclamp(reentryPID:get()*30, ReEntryPitch, 90) -- This is a target vs currentPitch, so flat 90's are good
+
+                        --local targetPitch2 = uclamp(curVelocityAngle*3,-90,90) -- While testing this pid, let's use a more static target
+                        if (reEntryPitchPID == nil) then -- Changing D=1 to 10... 
+                            reEntryPitchPID = pid.new(1, 0, 10) -- Prev: 2*0.01, 0, 2*0.01.  New values of 0.1, 0.0001, 10 seem v good
+
+                            --Maybe?  I think it still needs more D.  Giving it 100.  Nope, way too much, 20?  Still seems a bit much
+                            -- I think part of it is that, being in space, we really don't need an I; it will converge.  Removing it (Prev: 0.0001)
+                            -- And putting D back to 10
+                            -- It still overshoots a *lot*... let's bring the P down to 0.01 instead of 0.1.  Way worse.  1?
+                            -- Pretty good but the values are too high now
+                            -- If I understand these then, 0.1,0,1 should be equivalent but smaller?  Doesn't seem like it.  But it might be, maybe last test was fluke
+                            -- Cuz I put it back to 1 and divided by 10 and it was still bad
+                            -- Well that's probably because it's at or above the 90's much of the time
+                            -- Dividing by 100 makes it pretty good, at least for my shuttle
+
+                            -- Now let's tune the one that picks the pitch
+
+                            --  TODO: Does this need to be changed for flush?  It seems terrible, too fast or too slow always
+                        end -- I mean basically when at 90 deg it's way too much, doesn't come back fast enough
+                        -- And at low differences it's way not enough.  So... bring up the last param?
+
+                        -- This is so fucking annoying why the fuck can't it just work
+                        -- Jesus fucking christ.  *3 is ok, but doesn't converge well.  *4 is just fucking everywhere
+                        -- And obviously on some fucking ships *3 will be fucking everywhere too
+                        --local targetPitch2 = uclamp(curVelocityAngle*3,-90,90)
+
+
+                        reEntryPitchPID:inject(targetPitch2 - currentPitch)
+                        local autoPitchInput = reEntryPitchPID:get()/100
+                        --s.print(curVelocityAngle .."," .. targetRotation .. "," .. targetPitch2 .. "," .. currentPitch .. "," .. autoPitchInput)
+                        --local autoPitchInput = uclamp(curVelocityAngle/45,-1,1) -- /90?  It being far off will be rare, this should help it be relevant at low values... 
+                        oldInput = oldInput + autoPitchInput -- Apparently we intentionally reset it after all this, so let's edit what we set it to
+                        pitchInput2 = pitchInput2 + autoPitchInput -- Except when in atmo?  Sometimes we use one, sometimes the other... 
+                        --s.print(targetPitch2 .. " , " ..  autoPitchInput)
+                        --if (apYawPID == nil) then -- Changed from 2 to 8 to tighten it up around the target
+                        --    apYawPID = pid.new(2 * 0.01, 0, 2 * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
+                        --end
+                        --apYawPID:inject(targetYaw - currentYaw)
+                        --local autoYawInput = uclamp(apYawPID:get(),-1,1) -- Keep it reasonable so player can override
+                        --yawInput2 = yawInput2 + autoYawInput
+                        
 						autoRoll = true
-						if (throttleMode or navCom:getTargetSpeed(axisCommandId.longitudinal) ~= ReentrySpeed) then 
+						if (not inAtmo and (throttleMode or navCom:getTargetSpeed(axisCommandId.longitudinal) ~= ReentrySpeed)) then 
 							cmdC = ReentrySpeed
-						elseif atmoDistance < -4000 then -- swap at 1km or so, arbitrary; too early and altHold makes us dive too hard
+                            -- We otherwise want to keep overriding until they're... basically there... 
+						end
+                        if atmosDensity >= 0.1 then 
 							BrakeIsOn = false
 							reentryMode = false
 							Reentry = false
+                            ReentrySpeedSet = false
 						end
 					end
 				end
@@ -2299,7 +2483,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
                 local targetYaw = math.deg(signedRotationAngle(worldVertical:normalize(),constructVelocity,targetVec))*2
                 local rollRad = math.rad(mabs(adjustedRoll))
-                if velMag > minRollVelocity and inAtmo then
+                if velMag > minRollVelocity and inAtmo and not Reentry then
                     local rollminmax = 1000+velMag -- Roll should taper off within 1km instead of 100m because it's aggressive
                     -- And should also very aggressively use vspd so it can counteract high rates of ascent/descent
                     -- Otherwise this matches the formula to calculate targetPitch
@@ -2360,7 +2544,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 elseif (inAtmo and abvGndDet > -1 or velMag < minRollVelocity) then
 
                     AlignToWorldVector(targetVec) -- Point to the target if on the ground and 'stalled'
-                elseif stalling and inAtmo then
+                elseif stalling and inAtmo and not Reentry then
                     -- Do this if we're yaw stalling
                     if (currentYaw < -YawStallAngle or currentYaw > YawStallAngle) and inAtmo then
                         AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
@@ -2463,7 +2647,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 end
             end
 
-            if stalling and inAtmo and abvGndDet == -1 and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach" then
+            if stalling and inAtmo and not Reentry and abvGndDet == -1 and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach" then
                 AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
                 targetPitch = uclamp(adjustedPitch-currentPitch,adjustedPitch - PitchStallAngle*0.80, adjustedPitch + PitchStallAngle*0.80) -- Just try to get within un-stalling range to not bounce too much
             end
@@ -2494,16 +2678,30 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 else
                     aggBase = false
                 end
+                
+                autoRoll = true -- Always auto-roll for this (if in atmo?), prevents drift and buildings can't not be aligned with gravity
+                -- Unsure if we support this out of atmo but, if there's a planet nearby to roll to, it will; if not, autoRoll doesn't matter... much...
+
+                -- We really later need to support rolling to land, though, for optionally landing at space positions
+                
+                
                 if alignHeading then
                     if absHspd < 0.05 then
                         if vSpd > -brakeLandingRate then BrakeIsOn = false else BrakeIsOn = "BL Align BLR" end
                         if AlignToWorldVector(alignHeading, 0.001) then 
                             alignHeading = nil 
-                            autoRoll = autoRollPreference 
-                        else
-                            pitchInput2 = 0
-                            autoRoll = true
                         end
+                            --autoRoll = autoRollPreference 
+                            --autoRoll = true -- Always autoRoll... prevents drift
+                        --else
+                        
+                            pitchInput2 = 0 
+                            -- targetPitch is already 0, we don't want something else fighting it so reset what AlignToWorldVector did, always (in atmo)
+                            -- If they have a custom pitch, then we also don't want to point at it yet because it'll cause drift
+                            -- But.  We should be able to support nonstandard landing pitches by pointing at their pitch after descending, in case their pad is angled or something
+
+                            --autoRoll = true
+                        --end
                     else
                         BrakeIsOn = "BL Align Hzn"
                     end
@@ -2668,20 +2866,38 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 local rollRad = math.rad(mabs(adjustedRoll))
                 pitchToUse = adjustedPitch*mabs(math.cos(rollRad))+currentPitch*math.sin(rollRad)
             end
-            -- TODO: These clamps need to be related to roll and YawStallAngle, we may be dealing with yaw?
-            local pitchDiff = uclamp(targetPitch-pitchToUse, -PitchStallAngle*0.80, PitchStallAngle*0.80)
-            if not inAtmo and VectorToTarget then
-                pitchDiff = uclamp(targetPitch-pitchToUse, -85, MaxPitch) -- I guess
-            elseif not inAtmo then
-                pitchDiff = uclamp(targetPitch-pitchToUse, -MaxPitch, MaxPitch) -- I guess
-            end
-            if (((mabs(adjustedRoll) < 5 or VectorToTarget or ReversalIsOn)) or BrakeLanding or onGround or AltitudeHold) then
-                if (pitchPID == nil) then -- Changed from 8 to 5 to help reduce problems?
-                    pitchPID = pid.new(5 * 0.01, 0, 5 * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
+            if targetPitch then
+                -- TODO: These clamps need to be related to roll and YawStallAngle, we may be dealing with yaw?
+                -- They're clamping quite wrong; we need to clamp related to currentPitch, +/- PitchStallAngle
+                -- Which is hard... knowing our current velocityPitch vs our current realPitch, 
+                -- Let's say adjustedPitch-velocityPitch = 30, with a stallAngle of 45
+                -- Then we would clamp it so that adjustedPitch-velocityPitch <= 45... 
+                -- Or, we call that a pitchOffset, which is 30 in the example.  How do we then use that to clamp?
+                -- We then know that we can only accept targetPitch of up to adjustedPitch+(PitchStallAngle-pitchOffset)
+                -- And as low as adjustedPitch+(-PitchStallAngle-pitchOffset) 
+                -- pitchOffset 30, -45-30 = -75, checks out
+
+
+                -- I was just about to test this, we now set it to nil and also stall angle better
+                -- And I think we're prob still printing the reentry?
+
+
+                -- Something in here broke brakelanding...? Oh, well.  If we were clamping to not stall then ofc brakelanding wouldn't work
+
+                local pitchOffset = pitchToUse-currentPitch
+                if inAtmo and not BrakeLanding and not VertTakeOff and velMag > 100 and VectorStatus ~= "Finalizing Approach" then -- TODO: Find out what var indicates they have vtol engines, and skip stall avoidance if they use them
+                    targetPitch = uclamp(targetPitch, pitchToUse+(-PitchStallAngle-pitchOffset), pitchToUse+(PitchStallAngle-pitchOffset))
                 end
-                pitchPID:inject(pitchDiff)
-                local autoPitchInput = pitchPID:get()
-                pitchInput2 = pitchInput2 + autoPitchInput
+                local pitchDiff = targetPitch-pitchToUse
+                if (((mabs(adjustedRoll) < 5 or VectorToTarget or ReversalIsOn)) or BrakeLanding or onGround or AltitudeHold) then
+                    if (pitchPID == nil) then 
+                        pitchPID = pid.new(0.1, 0.0001, 1) -- Prev: 5 * 0.01, 0, 5* 0.1
+                    end
+                    pitchPID:inject(pitchDiff)
+                    local autoPitchInput = uclamp(pitchPID:get(), -1, 1)
+                    --s.print(autoPitchInput)
+                    pitchInput2 = pitchInput2 + autoPitchInput
+                end
             end
         end
         if antigrav ~= nil and (antigrav and not ExternalAGG and coreAltitude < 200000) then
@@ -2694,7 +2910,40 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
     -- End old APTick Code
 
-        if atmosDensity > 0 and AtmoSpeedAssist and throttleMode then
+        -- final inputs
+        local finalPitchInput = uclamp(pitchInput + pitchInput2 + s.getControlDeviceForwardInput(),-1,1)
+        local finalRollInput = uclamp(rollInput + rollInput2 + s.getControlDeviceYawInput(),-1,1)
+        local finalYawInput = uclamp((yawInput + yawInput2) - s.getControlDeviceLeftRightInput(),-1,1)
+        
+        local finalBrakeInput = (BrakeIsOn and 1) or 0
+        local targetAngularVelocity =
+            finalPitchInput * pitchSpeedFactor * constructRight + finalRollInput * rollSpeedFactor * constructForward +
+                finalYawInput * yawSpeedFactor * constructUp
+
+        if autoRoll == true and worldVertical:len() > 0.01 then
+            -- autoRoll on AND adjustedRoll is big enough AND player is not rolling
+            local currentRollDelta = mabs(targetRoll-adjustedRoll)
+            if ((( ProgradeIsOn or Reentry or BrakeLanding or spaceLand or AltitudeHold or IntoOrbit) and currentRollDelta > 0) or
+                (currentRollDelta < autoRollRollThreshold and autoRollPreference))  -- Removed inAtmo because it'd be really nice if it rolled to planets in space imo, if it's on
+                and finalRollInput == 0 and mabs(adjustedPitch) < 85 then
+                local targetRollDeg = targetRoll
+                local rollFactor = autoRollFactor
+                if not inAtmo then
+                    rollFactor = rollFactor/4 -- Better or worse, you think?
+                    targetRoll = 0 -- Always roll to 0 out of atmo
+                    targetRollDeg = 0
+                end
+                if (rollPID == nil) then
+                    rollPID = pid.new(rollFactor * 0.01, 0, rollFactor * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
+                end
+                rollPID:inject(targetRollDeg - adjustedRoll)
+                local autoRollInput = rollPID:get()
+                targetAngularVelocity = targetAngularVelocity + autoRollInput * constructForward
+            end
+        end
+
+
+        if inAtmo and AtmoSpeedAssist and throttleMode then
             -- This is meant to replace cruise
             -- Uses AtmoSpeedLimit as the desired speed in which to 'cruise'
             -- In atmo, if throttle is 100%, it applies a PID to throttle to try to achieve AtmoSpeedLimit

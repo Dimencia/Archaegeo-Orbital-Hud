@@ -299,6 +299,7 @@
             else
                 candidates = planetAtlas -- Already-built and probably already sorted
             end
+            if not sizeCalculator then sizeCalculator = self.sizeCalculator end
             -- Added this because, your knownContacts list is already sorted, can skip an expensive re-sort
             if not sorted then
                 table.sort(candidates, function (a1, b2)
@@ -311,8 +312,8 @@
             -- Use the body directly from the for loop instead of getting it with i
             for _, body in ipairs(candidates) do
                 local c_oV3 = body.center - origin
-                -- Changed to the new method.  IDK if this is how self works but I think so
-                local radius = self:sizeCalculator(body)
+                -- Self was overriding all defined calculators... 
+                local radius = sizeCalculator(body)
                 local dot = c_oV3:dot(dir)
                 local desc = dot ^ 2 - (c_oV3:len2() - radius ^ 2)
                 if desc >= 0 then
