@@ -1151,7 +1151,6 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
         coreAltitude = c.getAltitude()
         abvGndDet = AboveGroundLevel()
         time = systime()
-        lastApTickTime = time
 
         if GearExtended and abvGndDet > -1 and (abvGndDet - 3) < LandingGearGroundHeight then
             if navCom.targetGroundAltitudeActivated then 
@@ -1175,6 +1174,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
         local MousePitchFactor = 1 -- Mouse control only
         local MouseYawFactor = 1 -- Mouse control only
         local deltaTick = time - lastApTickTime
+        lastApTickTime = time -- We were setting this before we subtracted
         local currentYaw = -math.deg(signedRotationAngle(constructUp, constructVelocity, constructForward))
         local currentPitch = math.deg(signedRotationAngle(constructRight, constructVelocity, constructForward)) -- Let's use a consistent func that uses global velocity
         local up = worldVertical * -1
@@ -2196,6 +2196,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 				
 				-- Smoothly move from -90 to target pitch as we approach to help it be in the right direction from the start
                 --targetPitch = -(utils.smoothstep(atmoDistance/30000,0,1)*(90+ReEntryPitch)-ReEntryPitch)
+
                 targetPitch = -90 -- Nah, we don't want ReEntryPitch to affect the approach
 				
 				autoRoll = true -- I think our autoroll logic can handle if -90
@@ -2251,6 +2252,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
                         -- targetVec should be a vector ReEntryPitch degrees down from right:cross(gravity) (0 pitch forward)
 
+
                         targetPitch = nil -- Make our pid later not touch anything I hope
                         
                         -- This targetVec can sorta just completely override alt hold in space... it should be much better at it
@@ -2262,6 +2264,13 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                         -- Let's scale to a nonzero final rotation, so it does actually end at some point
                         local targetRotation = math.min(utils.smoothstep(shipDistance/stepDistance,0,1)*ReEntryPitch,-5)
 
+                        -- If velocity is (somewhat) higher than our target, keep pitch at 0 and brakes on until it gets at least close
+                        if velMag > adjustedAtmoSpeedLimit + 10 then
+                            targetRotation = 0 -- Or more accurately, make it stop losing altitude while we brake down
+                            BrakeIsOn = "Slowing to Speed Limit"
+                        else
+                            BrakeIsOn = false
+                        end
 
                         -- Weird.  targetPitch2 seems to always match currentPitch and doesn't change as the velocity vector moves
                         -- They both just sit in the 20's until we hit atmo
@@ -2481,18 +2490,40 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                     targetVec = autopilotTargetPlanet.center - worldPos
                 end
 
+                -- God I'm gonna have to redo this whole thing aren't I, it's definitely weird... 
+                -- What it's doing right now, after these changes so far, is that it stalls us... despite specifically clamping so it shouldn't...
+                -- I still think the main problem is that my velocity drops below minimum and it tries to unroll and then starts yawing before it does
+                -- Or induces extra pitch when it does, idk.  
+
+                -- But there's a few ways to rework this, or hell, all atmo-pointing routines
+                
+                -- One is to dig right into the flush vectors and probably easily convert a desire straight over
+
+                -- Another, maybe also, is to use a PID to determine the angle to aim at for pitch or yaw.  The PID could detect stalls on its own and optimize
+                -- And/or a pid that just, takes in the difference between current and target, and outputs a pitch/yaw value but
+                -- I tried that.  I should probably copy over my work from the reentryPID and use it for both pitch and yaw at our given roll?
+
+                -- Before I do that, let's look at the vector stuff and see if that might be easier
+
                 local targetYaw = math.deg(signedRotationAngle(worldVertical:normalize(),constructVelocity,targetVec))*2
                 local rollRad = math.rad(mabs(adjustedRoll))
                 if velMag > minRollVelocity and inAtmo and not Reentry then
-                    local rollminmax = 1000+velMag -- Roll should taper off within 1km instead of 100m because it's aggressive
+                    local rollminmax = 100+velMag -- Roll should taper off within 1km instead of 100m because it's aggressive
+                    -- Well what does 100 look like?  Will try it after I test these clamp removals and changes
+                    -- Well everything else still sucks but it's not gonna be better if we have a 1km leeway
+
                     -- And should also very aggressively use vspd so it can counteract high rates of ascent/descent
                     -- Otherwise this matches the formula to calculate targetPitch
-                    local rollAltitudeLimiter = (utils.smoothstep(altDiff-vSpd*10, -rollminmax, rollminmax) - 0.5) * 2 * MaxPitch
-                    local maxRoll = uclamp(90-rollAltitudeLimiter,0,180) -- Reverse roll to fix altitude seems good (max 180 instead of max 90)
+                    local rollAltitudeLimiter = (utils.smoothstep(altDiff-vSpd*10, -rollminmax, rollminmax) - 0.5) * 2 * 90 -- 90 instead of maxPitch could get weird
+                    --So... what even is this... 
+                    -- This sets the maxRoll to less than 90 if the altitude is higher, and above 90 if it's lower
+                    -- We really don't want maxRoll to reach 180, +45 (135) is probably a better upper limit
+                    -- We'll also use 90 instead of maxPitch, so if it needs to it can roll all the way back to 0 to keep altitude
+                    local maxRoll = uclamp(90-rollAltitudeLimiter,0,135)
                     targetRoll = uclamp(targetYaw*2, -maxRoll, maxRoll)
                     local origTargetYaw = targetYaw
                     -- 4x weight to pitch consideration because yaw is often very weak compared and the pid needs help?
-                    targetYaw = uclamp(uclamp(targetYaw,-YawStallAngle*0.80,YawStallAngle*0.80)*math.cos(rollRad) + 4*(adjustedPitch-targetPitch)*math.sin(math.rad(adjustedRoll)),-YawStallAngle*0.80,YawStallAngle*0.80) -- We don't want any yaw if we're rolled
+                    targetYaw = targetYaw*math.cos(rollRad) + 4*(adjustedPitch-targetPitch)*math.sin(math.rad(adjustedRoll)) -- We don't want any yaw if we're rolled...?
                     -- While this already should only pitch based on current roll, it still pitches early, resulting in altitude increase before the roll kicks in
                     -- I should adjust the first part so that when rollRad is relatively far from targetRoll, it is lower
                     local rollMatchMult = 1
@@ -2511,17 +2542,20 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                     -- Yeah that went pretty crazy in a bad way.  Which is weird.  It started bouncing between high and low pitch while rolled
                     -- Like the rollRad or something is dependent on velocity vector.  It also immediately rolled upside down... 
                     local rollPitch = targetPitch
-                    if mabs(adjustedRoll) > 90 then rollPitch = -rollPitch end
-                    targetPitch = rollMatchMult*uclamp(uclamp(rollPitch*math.cos(rollRad),-PitchStallAngle*0.8,PitchStallAngle*0.8) + mabs(uclamp(mabs(origTargetYaw)*math.sin(rollRad),-PitchStallAngle*0.80,PitchStallAngle*0.80)),-PitchStallAngle*0.80,PitchStallAngle*0.80) -- Always yaw positive 
+                    --if mabs(adjustedRoll) > 90 then rollPitch = -rollPitch end -- Clamps removed, we do them later... 
+                    targetPitch = rollMatchMult*rollPitch*math.cos(rollRad) + mabs(origTargetYaw)*math.sin(rollRad) -- Always yaw positive 
                     -- And also it seems pitch might be backwards when we roll upside down...
 
                     -- But things were working great with just the rollMatchMult and vSpd*10
                     
                 else
                     targetRoll = 0
-                    targetYaw = uclamp(targetYaw,-YawStallAngle*0.80,YawStallAngle*0.80)
+                    --targetYaw = uclamp(targetYaw,-YawStallAngle,YawStallAngle) 
                 end
 
+                --Setup clamps for yaw.  currentYaw and targetYaw are both in relation to velocity, so... just the stallAngles, +/-
+                -- We still use yaw stall angle even if we're sideways
+                targetYaw = uclamp(targetYaw, -YawStallAngle, YawStallAngle)
 
                 local yawDiff = currentYaw-targetYaw
 
@@ -2549,9 +2583,11 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                     if (currentYaw < -YawStallAngle or currentYaw > YawStallAngle) and inAtmo then
                         AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
                     end
-                    -- Only do this if we're stalled for pitch
+                    -- Only do this if we're stalled for pitch; shouldn't happen, but if it does, restrict more tightly
                     if (currentPitch < -PitchStallAngle or currentPitch > PitchStallAngle) and inAtmo then
-                        targetPitch = uclamp(adjustedPitch-currentPitch,adjustedPitch - PitchStallAngle*0.80, adjustedPitch + PitchStallAngle*0.80) -- Just try to get within un-stalling range to not bounce too much
+                        local pitchOffset = adjustedPitch-currentPitch
+                        targetPitch = uclamp(targetPitch, adjustedPitch+(-PitchStallAngle*0.8-pitchOffset), adjustedPitch+(PitchStallAngle*0.8-pitchOffset))
+                        --targetPitch = uclamp(adjustedPitch-currentPitch,adjustedPitch - PitchStallAngle*0.80, adjustedPitch + PitchStallAngle*0.80) -- Just try to get within un-stalling range to not bounce too much
                     end
                 end
                 
@@ -2710,56 +2746,192 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                     end
                 else
                     local skipLandingRate = false
-                    local distanceToStop = 30 
 
                     if absHspd < 10 and maxKinematicUp ~= nil and maxKinematicUp > 0 then
+                        skipLandingRate = true -- Always skip if we get into here
+
+
                         -- Funny enough, LastMaxBrakeInAtmo has stuff done to it to convert to a flat value
                         -- But we need the instant one back, to know how good we are at braking at this exact moment
-                        local atmos = uclamp(atmosDensity,0.4,2) -- Assume at least 40% atmo when they land, to keep things fast in low atmo
-                        local curBrake = LastMaxBrakeInAtmo * uclamp(velMag/100,0.1,1) * atmos
-                        local totalNewtons = maxKinematicUp * atmos + curBrake - gravity -- Ignore air friction for leeway, KinematicUp and Brake are already in newtons
-                        local weakBreakNewtons = curBrake/2 - gravity
 
-                        local speedAfterBraking = velMag - msqrt((mabs(weakBreakNewtons/2)*20)/(0.5*coreMass))*utils.sign(weakBreakNewtons)
-                        if speedAfterBraking < 0 then  
-                            speedAfterBraking = 0 -- Just in case it gives us negative values
+                        -- Problem: 'gravity' is for current position, but for safety, we should assume full gravity
+                        -- planet:getGravity(c.getConstructWorldPos()):len() * coreMass -- This is what the old one is
+
+                        -- If it's a known location, we can use that location to get the gravity, otherwise assume full
+                        
+                        -- Removed: and planet:getAltitude(CustomTarget.position) > 0 
+                        -- Old condition that is obsoleted by .safe
+                        local knownAltitude = (apBrk and CustomTarget ~= nil and CustomTarget.safe)
+                        -- ... Also, if we're not very near the target horizontally, we don't know if our position is accurate and should consider it unsafe
+                        if knownAltitude then
+                            local hDistance = (CustomTarget.position - worldPos):project_on_plane(worldVertical):len()
+                            if hDistance > 100 then
+                                knownAltitude = false
+                            end
                         end
+
+                        -- ... Why do we modify gravity?  The atlas has them correct
+                        local gravity = planet.gravity * 9.8 -- Assume full gravity, not current
+                        --s.print(gravity)
+                        if knownAltitude then
+                            gravity = planet:getGravity(CustomTarget.position):len() -- Unless we know what it is
+                        end
+                        --gravity = planet:getGravity(CustomTarget.position):len()
+                        --s.print("Planet: " .. gravity)
+                        gravity = gravity * coreMass
+                        --s.print("With mass: " .. gravity)
+                        -- Err.... These greatly disagree.  the planet.gravity thing gives about 80k
+                        -- getGravity gives about 780k
+                        -- I guess the result from getGravity is already a force, not an accel, so no mass needed in it
+                        --... no?  The hell?  It gives a good 9.8 by itself... 
+
+                        -- Alright... apparently we scale gravity /9.8 for some reason.  So now let's get it back... 
+
+                        -- Which probably means gravity is now greater than my weakBrakeNewtons 
+                        -- Which makes sense, at minimum power, they certainly can't stop me
+
+                        -- But if it's -1 I can just, assume they won't help and continue on with hovers(TODO THIS)
+
+                        -- atmos makes brakes better, so the safe thing to do is indeed assume current is the one we'll have
+                        local atmos = uclamp(atmosDensity,0.4,2) -- Assume at least 40% atmo when they land, to keep things fast in low atmo
+                        local curBrake = LastMaxBrakeInAtmo * uclamp(velMag/100,0.1,1) * atmos - gravity 
+
+                        -- I wonder if maxKinematicUp is lying...?  I mean, usually atmo elements look for velocity in the direction of thrust
+                        -- i.e. when going down, they might work at 0.1 capacity?  
+                        -- I doubt it.
+                        local upNewtons = maxKinematicUp * atmos
+                        local totalNewtons = upNewtons + curBrake -- Ignore air friction for leeway, KinematicUp and Brake are already in newtons
+                        -- We should assume when below 100m/s we are at 0.1 power...?
+                        -- Usually we use sqrt but that's apparently even lower, and 0.1 is already a low guess
+                        -- I'm gonna try 0.3 because, like with atmo, that's where a square function often ends up... 
+                            -- Yep that seems accurate af but really risky.  We'll try 0.25.  Yep, seems safe
+                        local weakBreakNewtons = LastMaxBrakeInAtmo * 0.25 * atmos - gravity
+                        --local curBrake = weakBreakNewtons -- Let's just always estimate at this
+                        -- This bit looks arbitrary in some places; but I know the 20 is the idea that we detect at 50m, and get to use hovers at 30m
+                        -- so we have 20m between in which to slow with only brakes
+                        -- I'd like to try adjusting this though, to be a bit less arbitrary, later....
+
+                        -- The smart thing would be to use jaylebreak's assumedly good kinematics; they have a .computeTravelTime(initial, accel, distance)
+                        -- I need final velocity not travel time but, I could use his same formula and derive my own... 
+                        -- Which might be exactly what this is tbh... 
+
+                        -- d=vt+at^2/2
+                        -- nah hang on let's find one
+                        -- v = vinitial + at... nope don't know time
+                        -- Which means it must be: v^2 = vinitial^2 + 2*a*distance
+                        -- So that's: v = msqrt(velMag^2 + 2*(-weakBreakNewtons*coreMass)*20)
+                        -- But that's awkward because it should give negative values in some cases, but can't
+                        -- So we'll clamp that inner bit to 0
+
+                        -- (This one is wrong)
+                        --local speedAfterBraking = velMag - msqrt((mabs(weakBreakNewtons/2)*20)/(0.5*coreMass))*utils.sign(weakBreakNewtons)
+                        
+                        -- Also, I'm moving it later after we've determined things about brakes
+
+                        -- This isn't quite right... : speedAfterBraking = msqrt(math.max(velMag*velMag + 2*(-weakBreakNewtons*coreMass)*20,0))
+                        -- It's giving values in the 52k range
+                        -- We might be off by a factor of 1000 because mass is in kg not g?  But I don't see anything like that in jaylebreak's math
+                        -- nah I think coreMass isn't needed...?  F=ma, we have an F
+                        -- We convert gravity from a to F by doing that formula... everything else is in Force now
+                        -- To get back from that force to an accel for our functions, we do a=F/m
+
+                        --if speedAfterBraking < 0 then  -- No longer possible
+                        --    speedAfterBraking = 0 -- Just in case it gives us negative values
+                        --end
                         -- So then see if hovers can finish the job in the remaining distance
 
-                        local brakeStopDistance
+                        
+                        -- Man it might actually be way easier to just, then find the speed we'd be at after braking with thrust added
+                        -- Add them together and if still >0, we need to brake
+                        -- This velMag > 100 stuff is kinda dumb but kinda not
+
+
+                        -- So, we actually detect the ground at 60m, and the hovers can fire for 50m... 
+                        -- So we only have 10m of braking-only which is fine
+
+                        local brakeStopDistance, speedAfterBraking
                         if velMag > 100 then
                             local brakeStopDistance1, _ = Kinematic.computeDistanceAndTime(velMag, 100, coreMass, 0, 0, curBrake)
-                            local brakeStopDistance2, _ = Kinematic.computeDistanceAndTime(100, 0, coreMass, 0, 0, msqrt(curBrake))
+                            local brakeStopDistance2, _ = Kinematic.computeDistanceAndTime(100, 0, coreMass, 0, 0, weakBreakNewtons)
                             brakeStopDistance = brakeStopDistance1+brakeStopDistance2
+                            -- If it takes more than 20m to get to 100m/s, we use full brake in our calc
+                            if brakeStopDistance1 > 10 then
+                                speedAfterBraking = msqrt(math.max(velMag*velMag + 2*(-curBrake/coreMass)*10,0))
+                            else 
+                                -- Combine them; speed after first bit, then after second bit
+                                speedAfterBraking = msqrt(math.max(velMag*velMag + 2*(-weakBreakNewtons/coreMass)*(brakeStopDistance1),0))
+                                speedAfterBraking = msqrt(math.max(speedAfterBraking*speedAfterBraking + 2*(-weakBreakNewtons/coreMass)*(10-brakeStopDistance1),0))
+                            end
                         else
-                            brakeStopDistance = Kinematic.computeDistanceAndTime(velMag, 0, coreMass, 0, 0, msqrt(curBrake))
+                            brakeStopDistance = Kinematic.computeDistanceAndTime(velMag, 0, coreMass, 0, 0, weakBreakNewtons)
+                            speedAfterBraking = msqrt(math.max(velMag*velMag + 2*(-weakBreakNewtons/coreMass)*10,0))
                         end
-                        if brakeStopDistance < 20 then
+                        if brakeStopDistance > -1 and brakeStopDistance < 10 then
                             BrakeIsOn = false -- We can stop in less than 20m from just brakes, we don't need to do anything
                             -- This gets overridden later if we don't know the altitude or don't want to calculate
+                            --s.print(brakeStopDistance .. " <10m")
                         else
+                            -- Now see if we can stop with all our brakes and all our thrust, in the final 30m
                             local stopDistance = 0
                             if speedAfterBraking > 100 then
                                 local stopDistance1, _ = Kinematic.computeDistanceAndTime(speedAfterBraking, 100, coreMass, 0, 0, totalNewtons) 
-                                local stopDistance2, _ = Kinematic.computeDistanceAndTime(100, 0, coreMass, 0, 0, maxKinematicUp * atmos + msqrt(curBrake) - gravity) -- Low brake power for the last 100kph
+                                local stopDistance2, _ = Kinematic.computeDistanceAndTime(100, 0, coreMass, 0, 0, upNewtons + weakBreakNewtons) -- Low brake power for the last 100kph
                                 stopDistance = stopDistance1 + stopDistance2
                             else
-                                stopDistance, _ = Kinematic.computeDistanceAndTime(speedAfterBraking, 0, coreMass, 0, 0, maxKinematicUp * atmos + msqrt(curBrake) - gravity) 
+                                stopDistance, _ = Kinematic.computeDistanceAndTime(speedAfterBraking, 0, coreMass, 0, 0, upNewtons + weakBreakNewtons) 
                             end
                             --if LandingGearGroundHeight == 0 then
-                            stopDistance = (stopDistance+15+(velMag*deltaTick))*1.1 -- Add leeway for large ships with forcefields or landing gear, and for lag
+                            --stopDistance = (stopDistance+15+(velMag*deltaTick))*1.1 -- Add leeway for large ships with forcefields or landing gear, and for lag
                             -- And just bad math I guess
-                            local knownAltitude = (apBrk and CustomTarget ~= nil and planet:getAltitude(CustomTarget.position) > 0 and CustomTarget.safe)
+
+                            -- Let's assume our math is good and try being risky
+                            -- So I'm noticing that the hovers aren't giving us new values each tick.  Looks like about every 3-4 ticks, probably fps dependent
+                            -- So we need to predict at least 4 ticks ahead
+
+                            -- Otherwise so far... it's really spot on.  It says it takes 60m to stop, detects 60m
+                            -- Only when it gets to like 20m left does it start thinking it will take less time to stop than it does
+                            -- Because we're fudging values toward safe, which makes our velocity drop faster than expected in real life
+
+                            -- Yeah definitely FPS related, on a ship with worse FPS, it is giving the same measurement 6+ times, and stopping slightly late
+                            -- deltaTick isn't exactly telling us the FPS delta, flush can slow down but not as much as FPS
+
+                            -- We could try to measure FPS rate but I'm not sure it's the same thing exactly, and also, it could lag just before getting there
+                            -- The obvious solution is just... some amount of leeway, which makes me sad, cuz it's perfect almost
+                            -- But we'll go with deltaTick*8, which should handle all but the heaviest of lag
+
+                            -- I guess not.  We were at 49m when we first detected ground; 11m off.  
+                            -- Maybe we assume 1s...?  No, that'd limit us to 60m/s
+
+                            -- Though this time it was getting new readings about every 3 attempts, so if deltaTick meant anything, that shouldn't have hurt us... 
+                            -- But, well, we were at 115m/s, and traveled 10m before we got a new reading (possibly more)
+                            -- Ahhh deltaTick was wrong and always 0
+
+                            -- But, I still see multiple readings per tick.  It seems to have stopped real early with this in place at *8 though
+                            -- Let's try *4 and see if it's more on time
+                            -- It is but now we're really still 10m early.  back to *1 like it should be?
+                            -- I guess.  Seems good, but when doing a known location, bounces. 
+
+                            -- I think this is because it feathers once it's in range, instead of just, slamming brakes
+
+                            -- But also very odd... it never detected the ground.  
+
+                            -- Odder - it now never even triggers a print
+
+                            -- Well, we were already setting it, and I was setting it again... but that shouldn't have mattered?
+
+                            stopDistance = stopDistance + LandingGearGroundHeight + velMag*deltaTick + 1 --Stop 1m above...?
+                            
                             local targetAltitude = nil
-                            if aggBase and aggBase < coreAltitude then
+                            if aggBase and (aggBase < coreAltitude or mabs(aggBase-coreAltitude) < 100) then -- Prevent it from disengaging brake if they dip below it
                                 targetAltitude = aggBase
-                            elseif knownAltitude then
-                                targetAltitude = planet:getAltitude(CustomTarget.position) + 250 -- Try to aim for like 500m above the target, give it lots of time
-                            elseif coreAltitude > planet.surfaceMaxAltitude then
-                                targetAltitude = planet.surfaceMaxAltitude
+                            elseif knownAltitude then -- Leeways are handled just above
+                                targetAltitude = planet:getAltitude(CustomTarget.position)
+                            -- We goin risky. Removed: + 250 -- Try to aim for like 500m above the target, give it lots of time
+                            --elseif coreAltitude > planet.surfaceMaxAltitude then
+                            --    targetAltitude = planet.surfaceMaxAltitude -- This makes it slow down fully much when it gets there, not good
                             end
-                            if collisionTarget then
-                                local collAlt = planet:getAltitude(collisionTarget[1].center)
+                            if collisionTarget then -- Add vertical size of collisionTarget
+                                local collAlt = planet:getAltitude(collisionTarget[1].center + -worldVertical*collisionTarget[1].radius) 
                                 if targetAltitude then 
                                     if collAlt > targetAltitude then 
                                         targetAltitude = collAlt 
@@ -2768,48 +2940,79 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                                     targetAltitude = collAlt 
                                 end
                             end
-                            if targetAltitude ~= nil then
-                                local distanceToGround = coreAltitude - targetAltitude 
-                                skipLandingRate = true
-                                if distanceToGround <= stopDistance or stopDistance == -1 or (absHspd > 0.05 and apBrk) then
-                                    if (absHspd > 0.05 and apBrk) then
-                                        BrakeIsOn = "BL AP Hzn"
-                                    else
+                            if coreAltitude > planet.surfaceMaxAltitude then
+                                BrakeIsOn = false
+                                --s.print(coreAltitude .. " core > surface max " .. planet.surfaceMaxAltitude)
+                            else
+                                local distanceToGround = 60 -- They have 60m in which to stop from all combined things, that should be our detection range
+                                if targetAltitude ~= nil then
+                                    distanceToGround = coreAltitude - targetAltitude
+                                end
+                                --skipLandingRate = true
+                                --s.print("Delta: " .. deltaTick .. ", Predicted dist: " .. distanceToGround .. "; vel: " ..  velMag .. "; " .. weakBreakNewtons .. "N... After 20m braking, speed: " .. speedAfterBraking .. "; stopDistance:" .. stopDistance .. " - ground at " .. abvGndDet)
+                                if distanceToGround <= stopDistance or stopDistance == -1 then --or (absHspd > 0.05 and apBrk) then
+                                --hspd now gets handled as we fall through
+                                -- But something weird is going on.  We're missing most if not all of the brake messages
+                                -- I'm pretty sure it's applying brakes, I see the vspd and velocity line jiggling 
+                                -- But nothing is displayed.  It may be toggling it on/off before hud can see it
+                                -- But then why can I see the ones from before we get to atmo?  
+
+
+                                    --if (absHspd > 0.05 and apBrk) then
+                                    --    BrakeIsOn = "BL AP Hzn"
+                                    --else
                                         BrakeIsOn = "BL Stop Dist"
-                                    end
+                                    --end
                                 else
                                     BrakeIsOn = false
                                 end
                             end
+                            --end
                         end
                     end
 
 
                     groundDistance = abvGndDet
                     if groundDistance > -1 then 
-                            if (velMag < 1 or constructVelocity:normalize():dot(worldVertical) < 0) and not alignHeading then -- Or if they start going back up
+                        -- The worldVertical thing was the same thing as looking for vSpd but harder to tune
+                        if (vSpd > -2) and not alignHeading then
+
+                            -- Water landings are cool but need to be controlled.  
+                            -- If the targetGroundAltitude isn't already LandingGearGroundHeight, set it but don't stop
+                            -- And then let this continue at BLR using hovers to slow it
+
+                            if aggBase then
                                 BrakeLanding = false
                                 AltitudeHold = false
-                                if not aggBase then
-                                    eLL = true
-                                    navCom:setTargetGroundAltitude(LandingGearGroundHeight)
-                                end
                                 upAmount = 0
                                 BrakeIsOn = "BL Complete"
                                 autoRoll = autoRollPreference 
                                 apBrk = false
                             else
-                                BrakeIsOn = "BL Slowing"
+                                eLL = true
+                                navCom:setTargetGroundAltitude(LandingGearGroundHeight)
+                                BrakeLanding = false
+                                AltitudeHold = false
+                                upAmount = 0
+                                BrakeIsOn = "BL Complete"
+                                autoRoll = autoRollPreference 
+                                apBrk = false
                             end
-                    elseif not skipLandingRate then
+                        else
+                            BrakeIsOn = "BL Slowing"
+                        end
+                    else
+                        -- I don't think we use StrongBrakes... I'm pretty sure we hard-set it to true in almost all cases
+                        -- I'll leave it because I see it in vtol code
+                        -- But this is an hspd limiter you're doing here already with this :dot
                         if StrongBrakes and (constructVelocity:normalize():dot(-up) < 0.999) then
                             BrakeIsOn = "BL Strong"
-                            AlignToWorldVector()
+                            --AlignToWorldVector() -- What
                         elseif absHspd > 10 or (absHspd > 0.05 and apBrk) then
-                            BrakeIsOn = "BL hSpd"
-                        elseif vSpd < -brakeLandingRate then
+                            BrakeIsOn = "BL hSpd" -- Weird, this doesn't seem to apply in the second half?  The second half may have already applied it but not... 
+                        elseif not skipLandingRate and vSpd < -brakeLandingRate then
                             BrakeIsOn = "BL BLR"
-                        else
+                        elseif not skipLandingRate then
                             BrakeIsOn = false
                         end
                     end
@@ -2861,9 +3064,9 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
             -- Don't pitch if there is significant roll, or if there is stall
             local onGround = abvGndDet > -1
             local pitchToUse = adjustedPitch
+            local rollRad = math.rad(mabs(adjustedRoll))
 
             if (VectorToTarget or spaceLaunch or ReversalIsOn) and not onGround and velMag > minRollVelocity and inAtmo then
-                local rollRad = math.rad(mabs(adjustedRoll))
                 pitchToUse = adjustedPitch*mabs(math.cos(rollRad))+currentPitch*math.sin(rollRad)
             end
             if targetPitch then
@@ -2877,24 +3080,40 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 -- And as low as adjustedPitch+(-PitchStallAngle-pitchOffset) 
                 -- pitchOffset 30, -45-30 = -75, checks out
 
+                -- So, if we're rolled upside down, the pitch reverses itself.  We've had this problem before... 
+                -- And it's because of the adjustedPitch implementation, which *should* do that normally
 
-                -- I was just about to test this, we now set it to nil and also stall angle better
-                -- And I think we're prob still printing the reentry?
+                -- But atmo rolling worked really well with the old fudgy 90 deg only pitch, so I've put that back if we're rolling
+                -- The stall angles should work fine on that I think?  
 
+                -- Nope, that didn't seem to solve anything
+                -- Well, I guess it only uses the updated pitch if going fast enough?  
+                -- So, it rolled upside down, and started pitching backwards.  After a few seconds, it started pitching forward and twitching in its roll
+                -- Then a bit later it seemed to break free and ignore everything.  Still TODO, fix that
 
-                -- Something in here broke brakelanding...? Oh, well.  If we were clamping to not stall then ofc brakelanding wouldn't work
+                -- After trying a bunch of stuff, I think it's somewhere else; probably where we roll and stuff...?
 
                 local pitchOffset = pitchToUse-currentPitch
-                if inAtmo and not BrakeLanding and not VertTakeOff and velMag > 100 and VectorStatus ~= "Finalizing Approach" then -- TODO: Find out what var indicates they have vtol engines, and skip stall avoidance if they use them
+                -- TODO: Find out what var indicates they have vtol engines, and skip stall avoidance if they use them
+                if (inAtmo and ((not BrakeLanding and not VertTakeOff and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach")
+                    or (VectorToTarget and VectorStatus ~= "Finalizing Approach") or AltitudeHold)) then -- TODO: Figure out what else needs this... 
                     targetPitch = uclamp(targetPitch, pitchToUse+(-PitchStallAngle-pitchOffset), pitchToUse+(PitchStallAngle-pitchOffset))
+                elseif not inAtmo and VectorToTarget then -- Space needs to clamp itself to +-90
+                    targetPitch = uclamp(targetPitch, pitchToUse+(-90-pitchOffset), pitchToUse+(90-pitchOffset))
                 end
                 local pitchDiff = targetPitch-pitchToUse
                 if (((mabs(adjustedRoll) < 5 or VectorToTarget or ReversalIsOn)) or BrakeLanding or onGround or AltitudeHold) then
                     if (pitchPID == nil) then 
-                        pitchPID = pid.new(0.1, 0.0001, 1) -- Prev: 5 * 0.01, 0, 5* 0.1
+                        pitchPID = pid.new(0.1, 0.0001, 10) -- Prev: 5 * 0.01, 0, 5* 0.1
+                        -- This can cause some overshoots when, for example, engaging BL for the first time... but makes alt hold converge
+                        -- Will try bringing up the 1 on D to 2? Better.  10?  Better still... but still a bit overshooty... 
+                        -- Divide the value by 10?  All this must be increasing it a lot. 
+                        -- Yeah that seems appropriate, maybe /5?  That still gets some bounce and goes over 1
+                        -- /8?  Well then it's a bit slow... Let's do /6... slow on some ships... 
+                            -- Gonna try /4, /5 is slow and not at all bouncy in most cases.  /4 seems good
                     end
                     pitchPID:inject(pitchDiff)
-                    local autoPitchInput = uclamp(pitchPID:get(), -1, 1)
+                    local autoPitchInput = uclamp(pitchPID:get()/4, -1, 1)
                     --s.print(autoPitchInput)
                     pitchInput2 = pitchInput2 + autoPitchInput
                 end
@@ -2924,15 +3143,24 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
             -- autoRoll on AND adjustedRoll is big enough AND player is not rolling
             local currentRollDelta = mabs(targetRoll-adjustedRoll)
             if ((( ProgradeIsOn or Reentry or BrakeLanding or spaceLand or AltitudeHold or IntoOrbit) and currentRollDelta > 0) or
-                (currentRollDelta < autoRollRollThreshold and autoRollPreference))  -- Removed inAtmo because it'd be really nice if it rolled to planets in space imo, if it's on
-                and finalRollInput == 0 and mabs(adjustedPitch) < 85 then
+                (currentRollDelta > autoRollRollThreshold and autoRollPreference))  -- Removed inAtmo because it'd be really nice if it rolled to planets in space imo, if it's on
+                -- Oh I see, you reversed threshold at some point... but it doesn't work that way, if we plug in a 170, there will be a random 10deg at the bottom that doesn't roll back
+                -- The intent is to give it like, a 1, so it doesn't bother trying to roll back the last 1 degree
+
+                -- Also, the delta could be as high as 360; this can make people get stuck with a default 180
+                -- So, I'm gonna put it to 0, put this back to currentRollDelta > autoRollRollThreshold, and make it force-update on startup from old versions
+                -- Until someone tells me what the intent was with it at 180... letting people fly upside down?
+                -- Either way, that breaks rolling behavior, which can turn you upside down
+                and finalRollInput == 0 and mabs(adjustedPitch) < 85 then 
                 local targetRollDeg = targetRoll
                 local rollFactor = autoRollFactor
-                if not inAtmo then
-                    rollFactor = rollFactor/4 -- Better or worse, you think?
-                    targetRoll = 0 -- Always roll to 0 out of atmo
-                    targetRollDeg = 0
-                end
+                -- this factor only matters when rollPID is nil, which means we either end up with a space one in atmo, or atmo one in space
+                -- So, not good, needs to generically be able to do both
+                --if not inAtmo then
+                --    rollFactor = rollFactor/4 -- Better or worse, you think?
+                --    targetRoll = 0 -- Always roll to 0 out of atmo
+                --    targetRollDeg = 0
+                --end
                 if (rollPID == nil) then
                     rollPID = pid.new(rollFactor * 0.01, 0, rollFactor * 0.1) -- magic number tweaked to have a default factor in the 1-10 range
                 end

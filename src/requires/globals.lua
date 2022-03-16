@@ -118,7 +118,7 @@
         MouseYSensitivity = 0.003 -- (Default: 0.003) For virtual joystick only
         autoRollFactor = 2 -- (Default: 2) [Only in atmosphere] When autoRoll is engaged, this factor will increase to strength of the roll back to 0
         rollSpeedFactor = 1.5 -- (Default: 1.5) This factor will increase/decrease the player input along the roll axis (higher value may be unstable)
-        autoRollRollThreshold = 180 -- (Default: 180) The amount of roll below which autoRoll to 0 will occur (if autoRollPreference is true)
+        autoRollRollThreshold = 0 -- (Default: 0) The amount of roll below which autoRoll to 0 will occur (if autoRollPreference is true)
         minRollVelocity = 150 -- (Default: 150) Min velocity, in m/s, over which autorolling can occur
         TrajectoryAlignmentStrength = 0.002 -- (Default: 0.002) How strongly AP tries to align your velocity vector to the target when not in orbit, recommend 0.002
         torqueFactor = 2 -- (Default: 2) Force factor applied to reach rotationSpeed (higher value may be unstable)

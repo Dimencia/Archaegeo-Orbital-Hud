@@ -194,6 +194,12 @@ function programClass(Nav, c, u, s, library, atlas, vBooster, hover, telemeter_1
                             LowOrbitHeight = 2000
                         end
                     end
+                    if LastVersionUpdate < 1.729 then
+                        if autoRollRollThreshold == 180 then
+                            msgText = "Updating autoRollRollThreshold from 180 to 0 for new implementation."
+                            autoRollRollThreshold = 0
+                        end
+                    end
                     LastVersionUpdate = VERSION_NUMBER
                     if #SavedLocations>0 then customlocations = addTable(customlocations, SavedLocations) end
                 else
