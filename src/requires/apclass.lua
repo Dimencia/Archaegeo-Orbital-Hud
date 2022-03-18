@@ -47,7 +47,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
         local sba = false
         local aptoggle = false
         local myAutopilotTarget=""
-        local parseRadar = false
+        --local parseRadar = false
         local lastMouseTime = 0
 
         local function GetAutopilotBrakeDistanceAndTime(speed)
@@ -1159,10 +1159,11 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
         end        
 
         if radar_1 then
-            parseRadar = not parseRadar
-            if parseRadar then 
+            --parseRadar = not parseRadar
+            --if parseRadar then 
+            -- No point in doing it every other tick... just do less each time we do it
                 RADAR.UpdateRadar() 
-            end
+            --end
             if CollisionSystem then checkCollision() end
         end
 
@@ -2690,7 +2691,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
 
             pitchInput2 = oldInput
-            local groundDistance = -1
+            local groundDistance = abvGndDet
 
             if BrakeLanding then
                 if not initBL then
@@ -2971,8 +2972,6 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                         end
                     end
 
-
-                    groundDistance = abvGndDet
                     if groundDistance > -1 then 
                         -- The worldVertical thing was the same thing as looking for vSpd but harder to tune
                         if (vSpd > -2) and not alignHeading then
@@ -3094,9 +3093,12 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 -- After trying a bunch of stuff, I think it's somewhere else; probably where we roll and stuff...?
 
                 local pitchOffset = pitchToUse-currentPitch
+
                 -- TODO: Find out what var indicates they have vtol engines, and skip stall avoidance if they use them
-                if (inAtmo and ((not BrakeLanding and not VertTakeOff and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach")
-                    or (VectorToTarget and VectorStatus ~= "Finalizing Approach") or AltitudeHold)) then -- TODO: Figure out what else needs this... 
+
+                -- So in this case, minRollVelocity is bad to have here: No matter how slow we're going, we don't want to induce stalls
+
+                if inAtmo and (AltitudeHold or (VectorToTarget and VectorStatus ~= "Finalizing Approach")) and not onGround then -- TODO: Figure out what else needs this... 
                     targetPitch = uclamp(targetPitch, pitchToUse+(-PitchStallAngle-pitchOffset), pitchToUse+(PitchStallAngle-pitchOffset))
                 elseif not inAtmo and VectorToTarget then -- Space needs to clamp itself to +-90
                     targetPitch = uclamp(targetPitch, pitchToUse+(-90-pitchOffset), pitchToUse+(90-pitchOffset))

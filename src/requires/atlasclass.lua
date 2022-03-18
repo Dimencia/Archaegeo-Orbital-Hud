@@ -282,7 +282,7 @@
             -- return nil
         end
 
-        function PlanetarySystem:sizeCalculator(body)
+        local function defaultSizeCalculator(body)
             return 1.05*body.radius
          end
          
@@ -294,12 +294,14 @@
 
                 -- Changed this to insert the body to candidates
                 for _, body in pairs(collection) do
-                    table.insert(candidates, body)
+                    if body then -- TODO: Something is giving us some nil bodies here, I think radar, make it stop doing that
+                        table.insert(candidates, body)
+                    end
                 end
             else
                 candidates = planetAtlas -- Already-built and probably already sorted
             end
-            if not sizeCalculator then sizeCalculator = self.sizeCalculator end
+            if not sizeCalculator then sizeCalculator = defaultSizeCalculator end
             -- Added this because, your knownContacts list is already sorted, can skip an expensive re-sort
             if not sorted then
                 table.sort(candidates, function (a1, b2)

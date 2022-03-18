@@ -120,7 +120,10 @@ function RadarClass(c, s, u, library, radar_1, radar_2,
                             end
                         end
                         count = count + 1
-                        if (nearPlanet and count > 700 or count2 > 70) or (not nearPlanet and count > 300 or count2 > 30) then
+                        -- I don't think we need to change this if on planet or not, we should be very fast now anyway
+                        --if (nearPlanet and count > 700 or count2 > 70) or (not nearPlanet and count > 300 or count2 > 30) then
+                        
+                        if count > 300 or count > 30 then
                             coroutine.yield()
                             count, count2 = 0, 0
                         end
@@ -187,6 +190,7 @@ function RadarClass(c, s, u, library, radar_1, radar_2,
         elseif cont == "dead" then
             UpdateRadarCoroutine = coroutine.create(UpdateRadarRoutine)
             local value, done = coroutine.resume(UpdateRadarCoroutine)
+            if done then s.print("ERROR UPDATE RADAR: "..done) end -- We were losing some errors I think
         end
     end
 
