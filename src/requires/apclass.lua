@@ -2506,10 +2506,12 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
                 -- Before I do that, let's look at the vector stuff and see if that might be easier
 
+                    -- Basically no, vector stuff is annoying.  All I need to do is make it roll better.  Let's just clamp to 90
+
                 local targetYaw = math.deg(signedRotationAngle(worldVertical:normalize(),constructVelocity,targetVec))*2
                 local rollRad = math.rad(mabs(adjustedRoll))
                 if velMag > minRollVelocity and inAtmo and not Reentry then
-                    local rollminmax = 100+velMag -- Roll should taper off within 1km instead of 100m because it's aggressive
+                    local rollminmax = 1000+velMag -- Roll should taper off within 1km instead of 100m because it's aggressive
                     -- Well what does 100 look like?  Will try it after I test these clamp removals and changes
                     -- Well everything else still sucks but it's not gonna be better if we have a 1km leeway
 
@@ -2520,7 +2522,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                     -- This sets the maxRoll to less than 90 if the altitude is higher, and above 90 if it's lower
                     -- We really don't want maxRoll to reach 180, +45 (135) is probably a better upper limit
                     -- We'll also use 90 instead of maxPitch, so if it needs to it can roll all the way back to 0 to keep altitude
-                    local maxRoll = uclamp(90-rollAltitudeLimiter,0,135)
+                    local maxRoll = uclamp(90-rollAltitudeLimiter,15,90)
                     targetRoll = uclamp(targetYaw*2, -maxRoll, maxRoll)
                     local origTargetYaw = targetYaw
                     -- 4x weight to pitch consideration because yaw is often very weak compared and the pid needs help?
@@ -2559,6 +2561,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 targetYaw = uclamp(targetYaw, -YawStallAngle, YawStallAngle)
 
                 local yawDiff = currentYaw-targetYaw
+                s.print("CurYaw:"..currentYaw .. ",target:" .. targetYaw)
 
                 if ReversalIsOn and mabs(yawDiff) <= 0.0001 and
                                     ((type(ReversalIsOn) == "table") or 
@@ -2579,7 +2582,7 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 elseif (inAtmo and abvGndDet > -1 or velMag < minRollVelocity) then
 
                     AlignToWorldVector(targetVec) -- Point to the target if on the ground and 'stalled'
-                elseif stalling and inAtmo and not Reentry then
+                elseif stalling and inAtmo and not Reentry and false then -- Disable while I try to figure out why it even can stall
                     -- Do this if we're yaw stalling
                     if (currentYaw < -YawStallAngle or currentYaw > YawStallAngle) and inAtmo then
                         AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
@@ -2684,10 +2687,10 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
                 end
             end
 
-            if stalling and inAtmo and not Reentry and abvGndDet == -1 and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach" then
-                AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
-                targetPitch = uclamp(adjustedPitch-currentPitch,adjustedPitch - PitchStallAngle*0.80, adjustedPitch + PitchStallAngle*0.80) -- Just try to get within un-stalling range to not bounce too much
-            end
+            --if stalling and inAtmo and not Reentry and abvGndDet == -1 and velMag > minRollVelocity and VectorStatus ~= "Finalizing Approach" then
+            --    AlignToWorldVector(constructVelocity) -- Otherwise try to pull out of the stall, and let it pitch into it
+            --    targetPitch = uclamp(adjustedPitch-currentPitch,adjustedPitch - PitchStallAngle*0.80, adjustedPitch + PitchStallAngle*0.80) -- Just try to get within un-stalling range to not bounce too much
+            --end
 
 
             pitchInput2 = oldInput
@@ -3092,16 +3095,19 @@ function APClass(Nav, c, u, s, atlas, vBooster, hover, telemeter_1, antigrav, wa
 
                 -- After trying a bunch of stuff, I think it's somewhere else; probably where we roll and stuff...?
 
+
+                    -- I'm p sure this is just, straight up wrong a lot of the time..?  
+
                 local pitchOffset = pitchToUse-currentPitch
 
                 -- TODO: Find out what var indicates they have vtol engines, and skip stall avoidance if they use them
 
                 -- So in this case, minRollVelocity is bad to have here: No matter how slow we're going, we don't want to induce stalls
 
-                if inAtmo and (AltitudeHold or (VectorToTarget and VectorStatus ~= "Finalizing Approach")) and not onGround then -- TODO: Figure out what else needs this... 
-                    targetPitch = uclamp(targetPitch, pitchToUse+(-PitchStallAngle-pitchOffset), pitchToUse+(PitchStallAngle-pitchOffset))
+                if inAtmo and (AltitudeHold or VectorToTarget) and VectorStatus ~= "Finalizing Approach" and not onGround then -- TODO: Figure out what else needs this... 
+                    targetPitch = uclamp(targetPitch, adjustedPitch+(-PitchStallAngle-pitchOffset), adjustedPitch+(PitchStallAngle-pitchOffset))
                 elseif not inAtmo and VectorToTarget then -- Space needs to clamp itself to +-90
-                    targetPitch = uclamp(targetPitch, pitchToUse+(-90-pitchOffset), pitchToUse+(90-pitchOffset))
+                    targetPitch = uclamp(targetPitch, adjustedPitch+(-90-pitchOffset), adjustedPitch+(90-pitchOffset))
                 end
                 local pitchDiff = targetPitch-pitchToUse
                 if (((mabs(adjustedRoll) < 5 or VectorToTarget or ReversalIsOn)) or BrakeLanding or onGround or AltitudeHold) then
